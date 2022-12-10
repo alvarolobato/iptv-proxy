@@ -30,10 +30,10 @@ release:
 
 nfpms:
   -
-   vendor: Pierre-Emmanuel Jacquier
+   vendor: RidGarou
    homepage: https://github.com/ridgarou/iptv-proxy
-   maintainer: Pierre-Emmanuel <pierre-emmanuel.jacquier@epitech.eu>
-   description: Reverse proxy on iptv m3u file
+   maintainer: RidGarou <ridgarou@hotmail.com>
+   description: Reverse proxy on iptv m3u file (based on Pierre-Emmanuel)
    license: Apache 2.0
    formats:
      - deb
@@ -45,10 +45,10 @@ dockers:
     - "docker.pkg.github.com/ridgarou/iptv-proxy/iptv-proxy:v{{ .Major }}-arm64"
     - "docker.pkg.github.com/ridgarou/iptv-proxy/iptv-proxy:v{{ .Major }}.{{ .Minor }}-arm64"
     - "docker.pkg.github.com/ridgarou/iptv-proxy/iptv-proxy:latest-arm64"
-    - "pierro777/iptv-proxy:{{ .Tag }}-arm64"
-    - "pierro777/iptv-proxy:v{{ .Major }}-arm64"
-    - "pierro777/iptv-proxy:v{{ .Major }}.{{ .Minor }}-arm64"
-    - "pierro777/iptv-proxy:latest-arm64"
+    - "ridgarou/iptv-proxy:{{ .Tag }}-arm64"
+    - "ridgarou/iptv-proxy:v{{ .Major }}-arm64"
+    - "ridgarou/iptv-proxy:v{{ .Major }}.{{ .Minor }}-arm64"
+    - "ridgarou/iptv-proxy:latest-arm64"
     use: buildx
     goos: linux
     goarch: arm64
@@ -72,14 +72,14 @@ dockers:
     - "docker.pkg.github.com/ridgarou/iptv-proxy/iptv-proxy:v{{ .Major }}"
     - "docker.pkg.github.com/ridgarou/iptv-proxy/iptv-proxy:v{{ .Major }}.{{ .Minor }}"
     - "docker.pkg.github.com/ridgarou/iptv-proxy/iptv-proxy:latest"
-    - "pierro777/iptv-proxy:{{ .Tag }}-amd64"
-    - "pierro777/iptv-proxy:v{{ .Major }}-amd64"
-    - "pierro777/iptv-proxy:v{{ .Major }}.{{ .Minor }}-amd64"
-    - "pierro777/iptv-proxy:latest-amd64"
-    - "pierro777/iptv-proxy:{{ .Tag }}"
-    - "pierro777/iptv-proxy:v{{ .Major }}"
-    - "pierro777/iptv-proxy:v{{ .Major }}.{{ .Minor }}"
-    - "pierro777/iptv-proxy:latest"
+    - "ridgarou/iptv-proxy:{{ .Tag }}-amd64"
+    - "ridgarou/iptv-proxy:v{{ .Major }}-amd64"
+    - "ridgarou/iptv-proxy:v{{ .Major }}.{{ .Minor }}-amd64"
+    - "ridgarou/iptv-proxy:latest-amd64"
+    - "ridgarou/iptv-proxy:{{ .Tag }}"
+    - "ridgarou/iptv-proxy:v{{ .Major }}"
+    - "ridgarou/iptv-proxy:v{{ .Major }}.{{ .Minor }}"
+    - "ridgarou/iptv-proxy:latest"
     use: buildx
     goos: linux
     goarch: amd64
