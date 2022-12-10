@@ -55,7 +55,7 @@ dockers:
     ids:
     - iptv-proxy
     build_flag_templates:
-    - "--platform=linux/arm64/v8"
+    - "--platform=linux/arm64"
     - "--label=org.opencontainers.image.created={{.Date}}"
     - "--label=org.opencontainers.image.name={{.ProjectName}}"
     - "--label=org.opencontainers.image.revision={{.FullCommit}}"
