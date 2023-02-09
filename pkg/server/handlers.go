@@ -196,7 +196,10 @@ func loadReplacements(filename string) Replacements {
 		defer replacementsFile.Close()
 
 		byteValue, _ := ioutil.ReadAll(replacementsFile)
-		json.Unmarshal(byteValue, &replacements)
+		err = json.Unmarshal(byteValue, &replacements)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 
 	return replacements
