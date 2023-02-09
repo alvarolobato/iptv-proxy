@@ -500,7 +500,7 @@ func (c *Config) hlsXtreamStream(ctx *gin.Context, oriURL *url.URL) {
 			ctx.Data(http.StatusOK, hlsResp.Header.Get("Content-Type"), []byte(body))
 			return
 		}
-		ctx.AbortWithError(http.StatusInternalServerError, errors.New("Unable to HLS stream")) // nolint: errcheck
+		ctx.AbortWithError(http.StatusInternalServerError, errors.New("unable to HLS stream")) // nolint: errcheck
 		return
 	}
 

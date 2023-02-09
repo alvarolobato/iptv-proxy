@@ -21,6 +21,7 @@ package server
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"io"
 	"io/ioutil"
 	"log"
@@ -29,6 +30,8 @@ import (
 	"path"
 	"strings"
 	"time"
+	"encoding/json"
+	"regexp"
 
 	"github.com/gin-gonic/gin"
 )
@@ -160,4 +163,50 @@ func (c *Config) appAuthenticate(ctx *gin.Context) {
 	}
 
 	ctx.Request.Body = ioutil.NopCloser(bytes.NewReader(contents))
+}
+
+func pathExists(filename string) (bool, bool) {
+	info, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+	   return false, false
+	}
+	return true, !info.IsDir()
+}
+
+type Replacements struct {
+    Global []Replacement `json:"global-replacements"`
+	Names  []Replacement `json:"names-replacements"`
+	Groups []Replacement `json:"groups-replacements"`
+}
+
+type Replacement struct {
+    Replace   string `json:"replace"`
+    With      string `json:"with"`
+}
+func loadReplacements(filename string) Replacements {
+	var replacements Replacements
+
+	if exist, _ :=pathExists(filename); exist {
+		replacementsFile, err := os.Open(filename)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		fmt.Println("Successfully Opened "+ filename)
+		defer replacementsFile.Close()
+
+		byteValue, _ := ioutil.ReadAll(replacementsFile)
+		json.Unmarshal(byteValue, &replacements)
+	}
+
+	return replacements
+}
+
+func applyReplacements(replacements []Replacement, value string) string {
+
+	for _, replacement := range replacements {
+		value = regexp.MustCompile(replacement.Replace).ReplaceAllString(value, replacement.With)
+	}
+
+	return value
 }

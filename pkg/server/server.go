@@ -27,7 +27,10 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"regexp"
 
+	"golang.org/x/exp/slices"
+  	
 	"github.com/gin-contrib/cors"
 	"github.com/jamesnetherton/m3u"
 	"github.com/ridgarou/iptv-proxy/pkg/config"
@@ -107,29 +110,57 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 
 	ret := 0
 	into.WriteString("#EXTM3U\n") // nolint: errcheck
+
+ 	re_group   := regexp.MustCompile(c.GroupRegex)    
+ 	re_channel := regexp.MustCompile(c.ChannelRegex)
+
+	replacements := loadReplacements(filepath.Join(c.JSONFolder, "replacements.json"))
+
 	for i, track := range c.playlist.Tracks {
 		var buffer bytes.Buffer
 
-		buffer.WriteString("#EXTINF:")                       // nolint: errcheck
-		buffer.WriteString(fmt.Sprintf("%d ", track.Length)) // nolint: errcheck
-		for i := range track.Tags {
-			if i == len(track.Tags)-1 {
-				buffer.WriteString(fmt.Sprintf("%s=%q", track.Tags[i].Name, track.Tags[i].Value)) // nolint: errcheck
+		if ((c.ChannelRegex == "") || ((c.ChannelRegex != "") && (re_channel.MatchString(track.Name)))) &&
+		   ((c.GroupRegex   == "") || ((c.GroupRegex   != "") && slices.IndexFunc(track.Tags, func(t m3u.Tag) bool { return t.Name == "group-title" && re_group.MatchString(t.Value) }) != -1)) {
+			buffer.WriteString("#EXTINF:")                       // nolint: errcheck
+			buffer.WriteString(fmt.Sprintf("%d ", track.Length)) // nolint: errcheck
+
+			if slices.IndexFunc(track.Tags, func(t m3u.Tag) bool { return t.Name == "tvg-id"}) == -1 {
+				buffer.WriteString(fmt.Sprintf("%s=%q ", "tvg-id", "")) // nolint: errcheck
+			}
+
+			for i := range track.Tags {
+				name  := track.Tags[i].Name
+				value := applyReplacements(replacements.Global, track.Tags[i].Value)
+
+				if name == "tvg-name" {
+					value = applyReplacements(replacements.Names, value)
+				}
+
+				if name == "group-title" {
+					value = applyReplacements(replacements.Groups, value)
+				}
+				
+				if i == len(track.Tags)-1 {
+					buffer.WriteString(fmt.Sprintf("%s=%q", name, value)) // nolint: errcheck
+					continue
+				}
+	
+				buffer.WriteString(fmt.Sprintf("%s=%q ", name, value)) // nolint: errcheck
+			}
+	
+			uri, err := c.replaceURL(track.URI, i-ret, xtream)
+			if err != nil {
+				ret++
+				log.Printf("ERROR: track: %s: %s", track.Name, err)
 				continue
 			}
-			buffer.WriteString(fmt.Sprintf("%s=%q ", track.Tags[i].Name, track.Tags[i].Value)) // nolint: errcheck
+			
+	        trackName := applyReplacements(replacements.Groups, track.Name)
+			trackName  = applyReplacements(replacements.Names, trackName)
+			into.WriteString(fmt.Sprintf("%s, %s\n%s\n", buffer.String(), trackName, uri)) // nolint: errcheck
+	
+			filteredTrack = append(filteredTrack, track)
 		}
-
-		uri, err := c.replaceURL(track.URI, i-ret, xtream)
-		if err != nil {
-			ret++
-			log.Printf("ERROR: track: %s: %s", track.Name, err)
-			continue
-		}
-
-		into.WriteString(fmt.Sprintf("%s, %s\n%s\n", buffer.String(), track.Name, uri)) // nolint: errcheck
-
-		filteredTrack = append(filteredTrack, track)
 	}
 	c.playlist.Tracks = filteredTrack
 

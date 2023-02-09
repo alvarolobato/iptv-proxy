@@ -1,0 +1,62 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [ 
+
+        {
+            "name": "Launch file",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            //"program": "${file}",
+            "program": "${workspaceFolder}/main.go",
+            "env": {
+                "NODE_ENV": "development",
+
+                "GIN_MODE": "debug",
+                // if you are using m3u remote file
+                //M3U_URL: /root/iptv/iptv.m3u
+                //M3U_URL: http://h268.top:8000/get.php?username=agg406&password=LxmABFcVE9&type=m3u_plus&output=mpegts
+
+                //# Xtream-code proxy configuration
+                //# (put these env variables if you want to add xtream proxy)
+                "XTREAM_USER": "63FA4914",
+                "XTREAM_PASSWORD": "A123456",
+                "XTREAM_BASE_URL": "http://goodtv.nicelei.xyz:80",
+                "XTREAM_API_GET": "true",
+
+                // Hostname or IP to expose the IPTVs endpoints (for machine not for docker)
+                "HOSTNAME": "dev.tv.raspberid.com.es",
+                // Port to expose the IPTVs endpoints
+                "PORT": "9898",
+                // "PORT": "80",
+                "USER": "ridtv",
+                "PASSWORD": "tvrid"
+                
+                // http://tv.raspberid.com.es:9898/xmltv.php?username=ridtv&password=tvrid&type=m3u_plus&output=mpegts
+                // http://tv.raspberid.com.es:9898/apiget?username=ridtv&password=tvrid&type=m3u_plus&output=ts
+                // http://tv.raspberid.com.es:9898/get.php?username=ridtv&password=tvrid&type=m3u_plus&output=mpegts
+                // https://tv.raspberid.com.es/get.php?username=ridtv&password=tvrid&type=m3u_plus&output=mpegts
+                // http://goodtv.nicelei.xyz:80/get.php?username=63FA4914&password=A123456&type=m3u_plus&output=mpegts
+                //
+                // https://tv.raspberid.com.es/apiget?username=ridtv&password=tvrid&type=m3u_plus&output=ts
+                // https://tv.raspberid.com.es/get.php?username=ridtv&password=tvrid&type=m3u_plus&output=ts
+                
+                // http://localhost:9898/apiget?username=ridtv&password=tvrid&type=m3u_plus&output=ts
+                // http://dev.tv.raspberid.com.es:9898/apiget?username=ridtv&password=tvrid&type=m3u_plus&output=ts
+
+                // Port to expose for Xtream or m3u file tracks endpoint
+                // "ADVERTISED_PORT": "443",
+                // Inportant to activate https protocol on proxy links
+                // "HTTPS": "1",
+                
+                //,"GROUP_REGEX": "ADULTS"
+                //,"CHANNEL_REGEX": ".+\\s(HD).*"
+
+                //,"JSON_FOLDER": "."
+            }
+        },
+    ]
+}

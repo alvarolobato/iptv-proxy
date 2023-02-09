@@ -1,0 +1,14 @@
+{
+    "global-replacements" : [
+        { "replace": "\\s+", "with": " "}
+    ],
+    "names-replacements" : [
+        { "replace": "^ES ",  "with": "ES: "},
+        { "replace": "^ES: ", "with": ""}
+    ],
+    "groups-replacements" : [
+        { "replace": "^ES ",  "with": "ES: "},
+        { "replace": "^ES: ", "with": ""},
+        { "replace": "M\\+",  "with": "MOVISTAR+"}
+    ]
+}

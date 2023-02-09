@@ -54,10 +54,14 @@ func (c *Config) xtreamRoutes(r *gin.RouterGroup) {
 	}
 	r.GET("/get.php", c.authenticate, getphp)
 	r.POST("/get.php", c.authenticate, getphp)
+
 	r.GET("/apiget", c.authenticate, c.xtreamApiGet)
+	
 	r.GET("/player_api.php", c.authenticate, c.xtreamPlayerAPIGET)
 	r.POST("/player_api.php", c.appAuthenticate, c.xtreamPlayerAPIPOST)
+	
 	r.GET("/xmltv.php", c.authenticate, c.xtreamXMLTV)
+	
 	r.GET(fmt.Sprintf("/%s/%s/:id", c.User, c.Password), c.xtreamStreamHandler)
 	r.GET(fmt.Sprintf("/live/%s/%s/:id", c.User, c.Password), c.xtreamStreamLive)
 	r.GET(fmt.Sprintf("/timeshift/%s/%s/:duration/:start/:id", c.User, c.Password), c.xtreamStreamTimeshift)
@@ -66,6 +70,8 @@ func (c *Config) xtreamRoutes(r *gin.RouterGroup) {
 	r.GET(fmt.Sprintf("/hlsr/:token/%s/%s/:channel/:hash/:chunk", c.User, c.Password), c.xtreamHlsrStream)
 	r.GET("/hls/:token/:chunk", c.xtreamHlsStream)
 	r.GET("/play/:token/:type", c.xtreamStreamPlay)
+
+	r.GET(fmt.Sprintf("/play/%s/%s/:id", c.User, c.Password), c.xtreamStreamHandler)
 }
 
 func (c *Config) m3uRoutes(r *gin.RouterGroup) {
