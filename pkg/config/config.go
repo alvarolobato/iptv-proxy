@@ -50,7 +50,6 @@ type ProxyConfig struct {
 	XtreamGenerateApiGet bool
 	M3UCacheExpiration   int
 	M3UFileName          string
-	JSONFolder           string
 	CustomEndpoint       string
 	RemoteURL            *url.URL
 	AdvertisedPort       int
@@ -59,4 +58,6 @@ type ProxyConfig struct {
 	//Filter channels with Regex
 	GroupRegex           string
 	ChannelRegex         string
+	JSONFolder           string
+	DivideByRes          bool
 }

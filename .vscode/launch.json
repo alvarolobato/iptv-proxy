@@ -4,7 +4,6 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [ 
-
         {
             "name": "Launch file",
             "type": "go",
@@ -54,8 +53,8 @@
                 
                 //,"GROUP_REGEX": "ADULTS"
                 //,"CHANNEL_REGEX": ".+\\s(HD).*"
-
                 //,"JSON_FOLDER": "."
+                ,"DIVIDE_GROUPS_BY_RESOLUTION": "true"
             }
         },
     ]

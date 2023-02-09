@@ -89,6 +89,7 @@ var rootCmd = &cobra.Command{
 			//Filter channels with Regex
 			GroupRegex:           viper.GetString("group-regex"),
 			ChannelRegex:         viper.GetString("channel-regex"),
+			DivideByRes:          viper.GetBool("divide-groups-by-resolution"),
 		}
 
 		if conf.AdvertisedPort == 0 {
