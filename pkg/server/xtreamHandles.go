@@ -33,6 +33,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jamesnetherton/m3u"
+	xtream "github.com/tellytv/go.xtream-codes"
 	xtreamapi "github.com/ridgarou/iptv-proxy/pkg/xtream-proxy"
 	uuid "github.com/satori/go.uuid"
 )
@@ -223,7 +224,6 @@ func (c *Config) xtreamApiGet(ctx *gin.Context) {
 	ctx.Header("Content-Type", "application/octet-stream")
 
 	ctx.File(path)
-
 }
 
 func (c *Config) xtreamPlayerAPIGET(ctx *gin.Context) {
@@ -269,6 +269,27 @@ func (c *Config) xtreamPlayerAPI(ctx *gin.Context, q url.Values) {
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
+	}
+
+	replacements := loadReplacements(filepath.Join(c.JSONFolder, "replacements.json"))
+
+	switch (action){
+	case "get_live_categories":
+		categories, _ := resp.([]xtream.Category)
+		for i, category := range categories {
+			category.Name = applyReplacements(replacements.Global, category.Name)
+			category.Name = applyReplacements(replacements.Groups, category.Name)
+			categories[i] = category
+		}
+		resp = categories
+	case "get_live_streams":
+		streams, _ := resp.([]xtream.Stream)
+		for i, stream := range streams {
+			stream.Name = applyReplacements(replacements.Global, stream.Name)
+			stream.Name = applyReplacements(replacements.Names, stream.Name)
+			streams[i] = stream
+		}
+		resp = streams
 	}
 
 	ctx.JSON(http.StatusOK, resp)

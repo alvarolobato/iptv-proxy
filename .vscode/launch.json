@@ -21,10 +21,18 @@
 
                 //# Xtream-code proxy configuration
                 //# (put these env variables if you want to add xtream proxy)
+
                 "XTREAM_USER": "63FA4914",
                 "XTREAM_PASSWORD": "A123456",
                 "XTREAM_BASE_URL": "http://goodtv.nicelei.xyz:80",
+
+                //https://serbianforum.org/threads/internet-radio-i-televizija.60172/page-7693
+                //"XTREAM_USER": "vc08204",
+                //"XTREAM_PASSWORD": "6686316795",
+                //"XTREAM_BASE_URL": "http://goodtv.nicevcd.xyz:80",
+
                 "XTREAM_API_GET": "true",
+
 
                 // Hostname or IP to expose the IPTVs endpoints (for machine not for docker)
                 "HOSTNAME": "dev.tv.raspberid.com.es",
@@ -34,14 +42,12 @@
                 "USER": "ridtv",
                 "PASSWORD": "tvrid"
                 
-                // http://tv.raspberid.com.es:9898/xmltv.php?username=ridtv&password=tvrid&type=m3u_plus&output=mpegts
-                // http://tv.raspberid.com.es:9898/apiget?username=ridtv&password=tvrid&type=m3u_plus&output=ts
-                // http://tv.raspberid.com.es:9898/get.php?username=ridtv&password=tvrid&type=m3u_plus&output=mpegts
-                // https://tv.raspberid.com.es/get.php?username=ridtv&password=tvrid&type=m3u_plus&output=mpegts
-                // http://goodtv.nicelei.xyz:80/get.php?username=63FA4914&password=A123456&type=m3u_plus&output=mpegts
-                //
+                // https://tv.raspberid.com.es/xmltv.php?username=ridtv&password=tvrid
                 // https://tv.raspberid.com.es/apiget?username=ridtv&password=tvrid&type=m3u_plus&output=ts
                 // https://tv.raspberid.com.es/get.php?username=ridtv&password=tvrid&type=m3u_plus&output=ts
+                // https://tv.raspberid.com.es/get.php?username=ridtv&password=tvrid&type=m3u_plus&output=mpegts
+
+                // http://goodtv.nicelei.xyz:80/get.php?username=63FA4914&password=A123456&type=m3u_plus&output=mpegts
                 
                 // http://localhost:9898/apiget?username=ridtv&password=tvrid&type=m3u_plus&output=ts
                 // http://dev.tv.raspberid.com.es:9898/apiget?username=ridtv&password=tvrid&type=m3u_plus&output=ts
@@ -52,9 +58,11 @@
                 // "HTTPS": "1",
                 
                 //,"GROUP_REGEX": "ADULTS"
+                ,"GROUP_REGEX": ".+\\s(HD).*"
                 //,"CHANNEL_REGEX": ".+\\s(HD).*"
                 //,"JSON_FOLDER": "."
                 ,"DIVIDE_GROUPS_BY_RESOLUTION": "true"
+                ,"FIX_CHANNEL_ID": "true"
             }
         },
     ]

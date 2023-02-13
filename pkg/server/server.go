@@ -120,49 +120,95 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 
 	replacements := loadReplacements(filepath.Join(c.JSONFolder, "replacements.json"))
 
+	tracks := c.playlist.Tracks
+
+	for i, track := range tracks {
+		if slices.IndexFunc(track.Tags, func(t m3u.Tag) bool { return t.Name == "tvg-id"}) == -1 {
+			var tag m3u.Tag 
+			tag.Name   = "tvg-id"
+			tag.Value  = ""
+			track.Tags = append(track.Tags, tag)
+		}
+
+		track.Name = applyReplacements(replacements.Global, track.Name)
+		track.Name = applyReplacements(replacements.Names,  track.Name)
+
+		isFHD := false
+		isHD  := false
+		isSD  := false
+
+		tags := track.Tags
+
+		for j, tag := range tags {
+			tag.Value = applyReplacements(replacements.Global, tag.Value)
+
+			switch (tag.Name){
+			case "tvg-name":
+				//tag.Value = applyReplacements(replacements.Names, value)
+				if c.DivideByRes {
+					isFHD = re_fhd.MatchString(tag.Value) || re_fhd.MatchString(track.Name)
+					isHD  = re_hd.MatchString(tag.Value)  || re_hd.MatchString(track.Name)
+					isSD  = re_sd.MatchString(tag.Value)  || re_sd.MatchString(track.Name)
+
+					if !isFHD && !isHD && !isSD {
+						isHD = true
+					}
+				}
+			case "group-title":
+				tag.Value = applyReplacements(replacements.Groups, tag.Value)
+				if c.DivideByRes {
+					switch {
+					case isFHD: tag.Value = tag.Value + " FHD"
+					case isHD:  tag.Value = tag.Value + " HD"
+					case isSD:  tag.Value = tag.Value + " SD"
+					}
+				}
+			}
+
+			tags[j] = tag
+		}
+
+		track.Tags = tags
+
+		if c.DivideByRes {
+			switch {
+			case isFHD: track.Name = re_fhd.ReplaceAllString(track.Name, "")
+			case isHD:  track.Name = re_hd.ReplaceAllString(track.Name, "")
+			case isSD:  track.Name = re_sd.ReplaceAllString(track.Name, "")
+			}
+		}
+
+		tracks[i] = track
+	}
+
+	c.playlist.Tracks = tracks
+
+	tracks = c.playlist.Tracks
+
+	for i := len(tracks) - 1; i >= 0; i-- {
+		track := tracks[i]
+		
+		if ((c.ChannelRegex == "") || ((c.ChannelRegex != "") && (re_channel.MatchString(track.Name)))) &&
+		   ((c.GroupRegex   == "") || ((c.GroupRegex   != "") && slices.IndexFunc(track.Tags, func(t m3u.Tag) bool { return t.Name == "group-title" && re_group.MatchString(t.Value) }) != -1)) {
+			// Nothing
+		} else {
+			tracks = append(tracks[:i], tracks[i+1:]...)
+		}
+	}
+
+	c.playlist.Tracks = tracks
+
 	for i, track := range c.playlist.Tracks {
 		var buffer bytes.Buffer
 
-		if ((c.ChannelRegex == "") || ((c.ChannelRegex != "") && (re_channel.MatchString(track.Name)))) &&
-		   ((c.GroupRegex   == "") || ((c.GroupRegex   != "") && slices.IndexFunc(track.Tags, func(t m3u.Tag) bool { return t.Name == "group-title" && re_group.MatchString(t.Value) }) != -1)) {
+		//if ((c.ChannelRegex == "") || ((c.ChannelRegex != "") && (re_channel.MatchString(track.Name)))) &&
+		//   ((c.GroupRegex   == "") || ((c.GroupRegex   != "") && slices.IndexFunc(track.Tags, func(t m3u.Tag) bool { return t.Name == "group-title" && re_group.MatchString(t.Value) }) != -1)) {
 			buffer.WriteString("#EXTINF:")                       // nolint: errcheck
 			buffer.WriteString(fmt.Sprintf("%d ", track.Length)) // nolint: errcheck
 
-			if slices.IndexFunc(track.Tags, func(t m3u.Tag) bool { return t.Name == "tvg-id"}) == -1 {
-				buffer.WriteString(fmt.Sprintf("%s=%q ", "tvg-id", "")) // nolint: errcheck
-			}
-
-			isFHD := false
-			isHD  := false
-			isSD  := false
-
 			for i := range track.Tags {
 				name  := track.Tags[i].Name
-				value := applyReplacements(replacements.Global, track.Tags[i].Value)
-
-				if name == "tvg-name" {
-					//value = applyReplacements(replacements.Names, value)
-					if c.DivideByRes {
-						isFHD = re_fhd.MatchString(value) || re_fhd.MatchString(track.Name)
-						isHD  = re_hd.MatchString(value)  || re_hd.MatchString(track.Name)
-						isSD  = re_sd.MatchString(value)  || re_sd.MatchString(track.Name)
-
-						if !isFHD && !isHD && !isSD {
-							isHD = true
-						}
-					}
-				}
-
-				if name == "group-title" {
-					value = applyReplacements(replacements.Groups, value)
-					if c.DivideByRes {
-						switch {
-						case isFHD: value = value + " FHD"
-						case isHD:  value = value + " HD"
-						case isSD:  value = value + " SD"
-						}
-					}
-				}
+				value := track.Tags[i].Value
 				
 				if i == len(track.Tags)-1 {
 					buffer.WriteString(fmt.Sprintf("%s=%q", name, value)) // nolint: errcheck
@@ -178,23 +224,13 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 				log.Printf("ERROR: track: %s: %s", track.Name, err)
 				continue
 			}
-			
-	        trackName := applyReplacements(replacements.Global, track.Name)
-			trackName  = applyReplacements(replacements.Names,  trackName)
 
-			if c.DivideByRes {
-				switch {
-				case isFHD: trackName = re_fhd.ReplaceAllString(trackName, "")
-				case isHD:  trackName = re_hd.ReplaceAllString(trackName, "")
-				case isSD:  trackName = re_sd.ReplaceAllString(trackName, "")
-				}
-			}
-
-			into.WriteString(fmt.Sprintf("%s, %s\n%s\n", buffer.String(), trackName, uri)) // nolint: errcheck
+			into.WriteString(fmt.Sprintf("%s, %s\n%s\n", buffer.String(), track.Name, uri)) // nolint: errcheck
 	
 			filteredTrack = append(filteredTrack, track)
-		}
+		//}
 	}
+
 	c.playlist.Tracks = filteredTrack
 
 	return into.Sync()
