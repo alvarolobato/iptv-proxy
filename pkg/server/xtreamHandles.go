@@ -313,12 +313,11 @@ func (c *Config) xtreamXMLTV(ctx *gin.Context) {
 
 func (c *Config) xtreamStreamHandler(ctx *gin.Context) {
 	id := ctx.Param("id")
-	rpURL, err := url.Parse(fmt.Sprintf("%s/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
+	rpURL, err := url.Parse(fmt.Sprintf("%s/play/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
-
 	c.xtreamStream(ctx, rpURL)
 }
 
@@ -331,6 +330,7 @@ func (c *Config) xtreamStreamLive(ctx *gin.Context) {
 	}
 
 	c.xtreamStream(ctx, rpURL)
+
 }
 
 func (c *Config) xtreamStreamPlay(ctx *gin.Context) {

@@ -22,20 +22,23 @@
                 //# Xtream-code proxy configuration
                 //# (put these env variables if you want to add xtream proxy)
 
-                "XTREAM_USER": "63FA4914",
+                "XTREAM_USER":     "63FA4914",
                 "XTREAM_PASSWORD": "A123456",
-                "XTREAM_BASE_URL": "http://goodtv.nicelei.xyz:80",
+                "XTREAM_BASE_URL": "http://goodtv.niceminh.xyz:80",
 
+                // https://www.myrok.xyz/2022/08/18/iptv-domain/
+                // https://eveiptv.com/tutorial-test/?v=f1225cde6189
+                // https://www.nicetviptv.com/tutorials/
                 //https://serbianforum.org/threads/internet-radio-i-televizija.60172/page-7693
                 //"XTREAM_USER": "vc08204",
                 //"XTREAM_PASSWORD": "6686316795",
                 //"XTREAM_BASE_URL": "http://goodtv.nicevcd.xyz:80",
 
-                "XTREAM_API_GET": "true",
-
+                "XTREAM_API_GET": "false",
 
                 // Hostname or IP to expose the IPTVs endpoints (for machine not for docker)
                 "HOSTNAME": "dev.tv.raspberid.com.es",
+
                 // Port to expose the IPTVs endpoints
                 "PORT": "9898",
                 // "PORT": "80",
