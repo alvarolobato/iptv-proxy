@@ -1,5 +1,7 @@
 module github.com/ridgarou/iptv-proxy
 
+go 1.21
+
 require (
 	github.com/gin-contrib/cors v1.7.0
 	github.com/gin-gonic/gin v1.9.1
@@ -53,5 +55,3 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-go 1.18
