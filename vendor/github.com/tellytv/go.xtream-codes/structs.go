@@ -1,5 +1,13 @@
 package xtreamcodes
 
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"reflect"
+	"strings"
+)
+
 // TODO: Add more flex types on IDs if needed
 // for future potential provider issues.
 
@@ -89,26 +97,15 @@ type SeriesInfo struct {
 }
 
 type SeriesEpisode struct {
-	Added              string  `json:"added"`
-	ContainerExtension string  `json:"container_extension"`
-	CustomSid          string  `json:"custom_sid"`
-	DirectSource       string  `json:"direct_source"`
-	EpisodeNum         FlexInt `json:"episode_num"`
-	ID                 string  `json:"id"`
-	Info               struct {
-		Audio        FFMPEGStreamInfo `json:"audio"`
-		Bitrate      FlexInt          `json:"bitrate"`
-		Duration     string           `json:"duration"`
-		DurationSecs FlexInt          `json:"duration_secs"`
-		MovieImage   string           `json:"movie_image"`
-		Name         string           `json:"name"`
-		Plot         string           `json:"plot"`
-		Rating       FlexFloat        `json:"rating"`
-		ReleaseDate  string           `json:"releasedate"`
-		Video        FFMPEGStreamInfo `json:"video"`
-	} `json:"info"`
-	Season FlexInt `json:"season"`
-	Title  string  `json:"title"`
+	Added              string       `json:"added"`
+	ContainerExtension string       `json:"container_extension"`
+	CustomSid          string       `json:"custom_sid"`
+	DirectSource       string       `json:"direct_source"`
+	EpisodeNum         FlexInt      `json:"episode_num"`
+	ID                 string       `json:"id"`
+	Info               *EpisodeInfo `json:"info,omitempty"`
+	Season             FlexInt      `json:"season"`
+	Title              string       `json:"title"`
 }
 
 type Series struct {
@@ -119,23 +116,7 @@ type Series struct {
 
 // VideoOnDemandInfo contains information about a video on demand stream.
 type VideoOnDemandInfo struct {
-	Info struct {
-		Audio          FFMPEGStreamInfo `json:"audio"`
-		BackdropPath   []string         `json:"backdrop_path"`
-		Bitrate        FlexInt          `json:"bitrate"`
-		Cast           string           `json:"cast"`
-		Director       string           `json:"director"`
-		Duration       string           `json:"duration"`
-		DurationSecs   FlexInt          `json:"duration_secs"`
-		Genre          string           `json:"genre"`
-		MovieImage     string           `json:"movie_image"`
-		Plot           string           `json:"plot"`
-		Rating         FlexFloat        `json:"rating"`
-		ReleaseDate    string           `json:"releasedate"`
-		TmdbID         FlexInt          `json:"tmdb_id"`
-		Video          FFMPEGStreamInfo `json:"video"`
-		YoutubeTrailer string           `json:"youtube_trailer"`
-	} `json:"info"`
+	Info      *VODInfo `json:"info,omitempty"`
 	MovieData struct {
 		Added              Timestamp `json:"added"`
 		CategoryID         FlexInt   `json:"category_id,string"`
@@ -145,6 +126,24 @@ type VideoOnDemandInfo struct {
 		Name               string    `json:"name"`
 		StreamID           FlexInt   `json:"stream_id"`
 	} `json:"movie_data"`
+}
+
+type VODInfo struct {
+	Audio          *FFMPEGStreamInfo `json:"audio,omitempty"`
+	BackdropPath   []string          `json:"backdrop_path"`
+	Bitrate        FlexInt           `json:"bitrate"`
+	Cast           string            `json:"cast"`
+	Director       string            `json:"director"`
+	Duration       string            `json:"duration"`
+	DurationSecs   FlexInt           `json:"duration_secs"`
+	Genre          string            `json:"genre"`
+	MovieImage     string            `json:"movie_image"`
+	Plot           string            `json:"plot"`
+	Rating         FlexFloat         `json:"rating"`
+	ReleaseDate    string            `json:"releasedate"`
+	TmdbID         FlexInt           `json:"tmdb_id"`
+	Video          *FFMPEGStreamInfo `json:"video,omitempty"`
+	YoutubeTrailer string            `json:"youtube_trailer"`
 }
 
 type epgContainer struct {
@@ -165,4 +164,272 @@ type EPGInfo struct {
 	StartTimestamp Timestamp          `json:"start_timestamp"`
 	StopTimestamp  Timestamp          `json:"stop_timestamp"`
 	Title          Base64Value        `json:"title"`
+}
+
+type EpisodeInfo struct {
+	Audio        *FFMPEGStreamInfo `json:"audio,omitempty"`
+	Bitrate      FlexInt           `json:"bitrate"`
+	Duration     string            `json:"duration"`
+	DurationSecs FlexInt           `json:"duration_secs"`
+	MovieImage   string            `json:"movie_image"`
+	Name         string            `json:"name"`
+	Plot         string            `json:"plot"`
+	Rating       FlexFloat         `json:"rating"`
+	ReleaseDate  string            `json:"releasedate"`
+	Video        *FFMPEGStreamInfo `json:"video,omitempty"`
+}
+
+// UnmarshalJSON implements custom unmarshaling for VideoOnDemandInfo
+func (vod *VideoOnDemandInfo) UnmarshalJSON(data []byte) error {
+	type Alias VideoOnDemandInfo
+	aux := &struct {
+		*Alias
+		Info json.RawMessage `json:"info"`
+	}{
+		Alias: (*Alias)(vod),
+	}
+
+	logInitialError := false
+	initialErr := json.Unmarshal(data, &aux)
+	errMsg := fmt.Sprintf("UnmarshalJSON error for VideoOnDemandInfo: %v", initialErr)
+	dataMsg := fmt.Sprintf("Problematic JSON data for VideoOnDemandInfo: %s", string(data))
+
+	// Handle Info field
+	if len(aux.Info) > 0 && string(aux.Info) != "\"\"" && string(aux.Info) != "[]" && string(aux.Info) != "[null]" {
+		var info VODInfo
+		if err := json.Unmarshal(aux.Info, &info); err != nil {
+			log.Printf("Warning: Failed to unmarshal Info field. Using reflective unmarshalling.")
+
+			if unmarshalErr := unmarshalReflectiveFields(aux.Info, &info, "Info"); unmarshalErr != nil {
+				logInitialError = true
+			}
+		}
+		vod.Info = &info
+	}
+
+	// Log initial error and data only if subsequent unmarshalling fails
+	if logInitialError && initialErr != nil {
+		log.Println(errMsg)
+		log.Println(dataMsg)
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for VODInfo
+func (vi *VODInfo) UnmarshalJSON(data []byte) error {
+	type Alias VODInfo
+	aux := &struct {
+		*Alias
+		Audio json.RawMessage `json:"audio"`
+		Video json.RawMessage `json:"video"`
+	}{
+		Alias: (*Alias)(vi),
+	}
+
+	logInitialError := false
+	initialErr := json.Unmarshal(data, &aux)
+	errMsg := fmt.Sprintf("UnmarshalJSON error for VODInfo: %v", initialErr)
+	dataMsg := fmt.Sprintf("Problematic JSON data for VODInfo: %s", string(data))
+
+	// Handle Audio field
+	if len(aux.Audio) > 0 && string(aux.Audio) != "\"\"" && string(aux.Audio) != "[]" && string(aux.Audio) != "[null]" {
+		var audio FFMPEGStreamInfo
+		if err := json.Unmarshal(aux.Audio, &audio); err != nil {
+			log.Printf("Warning: Failed to unmarshal Audio field. Using reflective unmarshalling.")
+
+			if unmarshalErr := unmarshalReflectiveFields(aux.Audio, &audio, "Audio"); unmarshalErr != nil {
+				logInitialError = true
+			}
+		}
+		vi.Audio = &audio
+	}
+
+	// Handle Video field
+	if len(aux.Video) > 0 && string(aux.Video) != "\"\"" && string(aux.Video) != "[]" && string(aux.Video) != "[null]" {
+		var video FFMPEGStreamInfo
+		if err := json.Unmarshal(aux.Video, &video); err != nil {
+			log.Printf("Warning: Failed to unmarshal Video field. Using reflective unmarshalling.")
+
+			if unmarshalErr := unmarshalReflectiveFields(aux.Video, &video, "Video"); unmarshalErr != nil {
+				logInitialError = true
+			}
+		}
+		vi.Video = &video
+	}
+
+	// Unmarshal remaining fields using reflective unmarshalling
+	if err := unmarshalReflectiveFields(data, vi, "VODInfo"); err != nil {
+		log.Printf("Warning: Error during reflective unmarshalling of VODInfo: %v", err)
+		logInitialError = true
+	}
+
+	// Log initial error and data only if subsequent unmarshalling fails
+	if logInitialError && initialErr != nil {
+		log.Println(errMsg)
+		log.Println(dataMsg)
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for SeriesEpisode
+func (se *SeriesEpisode) UnmarshalJSON(data []byte) error {
+	type Alias SeriesEpisode
+	aux := &struct {
+		*Alias
+		Info json.RawMessage `json:"info"`
+	}{
+		Alias: (*Alias)(se),
+	}
+
+	logInitialError := false
+	initialErr := json.Unmarshal(data, &aux)
+	errMsg := fmt.Sprintf("UnmarshalJSON error for SeriesEpisode: %v", initialErr)
+	dataMsg := fmt.Sprintf("Problematic JSON data for SeriesEpisode: %s", string(data))
+
+	// Handle Info field
+	if len(aux.Info) > 0 && string(aux.Info) != "\"\"" && string(aux.Info) != "[]" && string(aux.Info) != "[null]" {
+		var info EpisodeInfo
+		if err := json.Unmarshal(aux.Info, &info); err != nil {
+			log.Printf("Warning: Failed to unmarshal Info field. Using reflective unmarshalling.")
+
+			if unmarshalErr := unmarshalReflectiveFields(aux.Info, &info, "Info"); unmarshalErr != nil {
+				logInitialError = true
+			}
+		}
+		se.Info = &info
+	}
+
+	// Log initial error and data only if subsequent unmarshalling fails
+	if logInitialError && initialErr != nil {
+		log.Println(errMsg)
+		log.Println(dataMsg)
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for EpisodeInfo
+func (ei *EpisodeInfo) UnmarshalJSON(data []byte) error {
+	type Alias EpisodeInfo
+	aux := &struct {
+		*Alias
+		Video json.RawMessage `json:"video"`
+		Audio json.RawMessage `json:"audio"`
+	}{
+		Alias: (*Alias)(ei),
+	}
+
+	logInitialError := false
+	initialErr := json.Unmarshal(data, &aux)
+	errMsg := fmt.Sprintf("UnmarshalJSON error for EpisodeInfo: %v", initialErr)
+	dataMsg := fmt.Sprintf("Problematic JSON data for EpisodeInfo: %s", string(data))
+
+	// Handle Video field
+	if len(aux.Video) > 0 && string(aux.Video) != "\"\"" && string(aux.Video) != "[]" && string(aux.Video) != "[null]" {
+		var video FFMPEGStreamInfo
+		if err := json.Unmarshal(aux.Video, &video); err != nil {
+			log.Printf("Warning: Failed to unmarshal Video field. Using reflective unmarshalling.")
+
+			if unmarshalErr := unmarshalReflectiveFields(aux.Video, &video, "Video"); unmarshalErr != nil {
+				logInitialError = true
+			}
+		}
+		ei.Video = &video
+	}
+
+	// Handle Audio field
+	if len(aux.Audio) > 0 && string(aux.Audio) != "\"\"" && string(aux.Audio) != "[]" && string(aux.Audio) != "[null]" {
+		var audio FFMPEGStreamInfo
+		if err := json.Unmarshal(aux.Audio, &audio); err != nil {
+			log.Printf("Warning: Failed to unmarshal Audio field. Using reflective unmarshalling.")
+
+			if unmarshalErr := unmarshalReflectiveFields(aux.Audio, &audio, "Audio"); unmarshalErr != nil {
+				logInitialError = true
+			}
+		}
+		ei.Audio = &audio
+	}
+
+	// Log initial error and data only if subsequent unmarshalling fails
+	if logInitialError && initialErr != nil {
+		log.Println(errMsg)
+		log.Println(dataMsg)
+	}
+
+	return nil
+}
+
+func unmarshalReflectiveFields(data []byte, v interface{}, fieldName string) error {
+	var objMap map[string]json.RawMessage
+	if err := json.Unmarshal(data, &objMap); err != nil {
+		return fmt.Errorf("error unmarshaling %s: %v", fieldName, err)
+	}
+
+	valuePtr := reflect.ValueOf(v)
+	if valuePtr.Kind() != reflect.Ptr {
+		return fmt.Errorf("%s must be a pointer", fieldName)
+	}
+	value := valuePtr.Elem()
+
+	// Create a map to track which fields have been processed
+	processedFields := make(map[string]bool)
+
+	// Create a slice to store errors
+	var errors []string
+
+	for i := 0; i < value.NumField(); i++ {
+		field := value.Type().Field(i)
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == "" {
+			jsonTag = field.Name
+		}
+		if jsonTag == "-" {
+			continue
+		}
+		jsonTag = strings.Split(jsonTag, ",")[0]
+
+		processedFields[jsonTag] = true
+
+		if rawValue, ok := objMap[jsonTag]; ok {
+			// Check if the value is empty or an empty array
+			if len(rawValue) == 0 || string(rawValue) == "\"\"" || string(rawValue) == "[]" || string(rawValue) == "[null]" {
+				continue
+			}
+
+			fieldValue := value.Field(i)
+			if fieldValue.CanSet() {
+				err := json.Unmarshal(rawValue, fieldValue.Addr().Interface())
+				if err != nil {
+					errMsg := fmt.Sprintf("Error unmarshaling field %s.%s (value: %s): %v", fieldName, field.Name, string(rawValue), err)
+					log.Printf("Warning: %s", errMsg)
+					errors = append(errors, errMsg)
+					// Continue with other fields instead of returning an error
+				}
+			}
+		}
+	}
+
+	/*
+	   // Log fields in the JSON that are not in the struct
+	   for jsonField, rawValue := range objMap {
+	       if !processedFields[jsonField] {
+	           var value interface{}
+	           err := json.Unmarshal(rawValue, &value)
+	           if err != nil {
+	               log.Printf("Warning: Error unmarshaling extra field %s.%s: %v", fieldName, jsonField, err)
+	               // } else {
+	               //  log.Printf("Extra field in %s: %s = %v", fieldName, jsonField, value)
+	           }
+	       }
+	   }
+	*/
+
+	// If there were any errors during the process, return an error
+	if len(errors) > 0 {
+		return fmt.Errorf("unmarshalReflectiveFields encountered %d error(s) for %s: %s", len(errors), fieldName, strings.Join(errors, "; "))
+	}
+
+	return nil
 }
