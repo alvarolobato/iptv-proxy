@@ -2,6 +2,13 @@
 
 [![Actions Status](https://github.com/pierre-emmanuelJ/iptv-proxy/workflows/CI/badge.svg)](https://github.com/pierre-emmanuelJ/iptv-proxy/actions?query=workflow%3ACI)
 
+NOTE: This fork of the [original project](https://github.com/pierre-emmanuelJ/iptv-proxy) contains the following enhancements:
+
+- Corrected issue with Xtream Codes EPG not loading
+- Fixed issue with Xtream Codes VOD (Shows & Movies) as the IPTV provider returned data seems to be partially complete, or missing pieces that this proxy is expecting
+
+
+
 ## Description
 
 Iptv-Proxy is a project to proxyfie an m3u file
