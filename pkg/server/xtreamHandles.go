@@ -33,6 +33,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jamesnetherton/m3u"
+	"github.com/pierre-emmanuelJ/iptv-proxy/pkg/utils"
 	xtreamapi "github.com/pierre-emmanuelJ/iptv-proxy/pkg/xtream-proxy"
 	uuid "github.com/satori/go.uuid"
 )
@@ -280,6 +281,9 @@ func (c *Config) xtreamPlayerAPI(ctx *gin.Context, q url.Values) {
 
 	log.Printf("[iptv-proxy] %v | %s |Action\t%s\n", time.Now().Format("2006/01/02 - 15:04:05"), ctx.ClientIP(), action)
 
+	// Write response to file
+	utils.WriteResponseToFile(ctx, resp)
+
 	ctx.JSON(http.StatusOK, resp)
 }
 
@@ -297,6 +301,9 @@ func (c *Config) xtreamXMLTV(ctx *gin.Context) {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
+
+	// Write response to file
+	utils.WriteResponseToFile(ctx, resp)
 
 	ctx.Data(http.StatusOK, "application/xml", resp)
 }

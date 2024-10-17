@@ -10,6 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+
+	"github.com/gin-gonic/gin"
+	"github.com/pierre-emmanuelJ/iptv-proxy/pkg/utils"
 )
 
 var defaultUserAgent = "go.xstream-codes (Go-http-client/1.1)"
@@ -230,7 +233,7 @@ func (c *XtreamClient) GetSeriesInfo(seriesID string) (*Series, error) {
 		return nil, fmt.Errorf("series ID can not be empty")
 	}
 
-	seriesData, seriesErr := c.sendRequest("get_series_info", url.Values{"series_id": []string{seriesID}})
+	seriesData, url, seriesErr := c.sendRequestWithURL("get_series_info", url.Values{"series_id": []string{seriesID}})
 	if seriesErr != nil {
 		return nil, seriesErr
 	}
@@ -238,6 +241,9 @@ func (c *XtreamClient) GetSeriesInfo(seriesID string) (*Series, error) {
 	seriesInfo := &Series{}
 
 	jsonErr := json.Unmarshal(seriesData, &seriesInfo)
+	if jsonErr != nil {
+		utils.WriteResponseToFileWithOverwrite(nil, seriesData, false, url)
+	}
 
 	return seriesInfo, jsonErr
 }
@@ -248,7 +254,7 @@ func (c *XtreamClient) GetVideoOnDemandInfo(vodID string) (*VideoOnDemandInfo, e
 		return nil, fmt.Errorf("vod ID can not be empty")
 	}
 
-	vodData, vodErr := c.sendRequest("get_vod_info", url.Values{"vod_id": []string{vodID}})
+	vodData, url, vodErr := c.sendRequestWithURL("get_vod_info", url.Values{"vod_id": []string{vodID}})
 	if vodErr != nil {
 		return nil, vodErr
 	}
@@ -256,6 +262,9 @@ func (c *XtreamClient) GetVideoOnDemandInfo(vodID string) (*VideoOnDemandInfo, e
 	vodInfo := &VideoOnDemandInfo{}
 
 	jsonErr := json.Unmarshal(vodData, &vodInfo)
+	if jsonErr != nil {
+		utils.WriteResponseToFileWithOverwrite(nil, vodData, false, url)
+	}
 
 	return vodInfo, jsonErr
 }
@@ -303,6 +312,11 @@ func (c *XtreamClient) getEPG(action, streamID string, limit int) ([]EPGInfo, er
 }
 
 func (c *XtreamClient) sendRequest(action string, parameters url.Values) ([]byte, error) {
+	data, _, err := c.sendRequestWithURL(action, parameters)
+	return data, err
+}
+
+func (c *XtreamClient) sendRequestWithURL(action string, parameters url.Values) ([]byte, string, error) {
 	file := "player_api.php"
 	if action == "xmltv.php" {
 		file = action
@@ -318,7 +332,7 @@ func (c *XtreamClient) sendRequest(action string, parameters url.Values) ([]byte
 
 	request, httpErr := http.NewRequest("GET", url, nil)
 	if httpErr != nil {
-		return nil, httpErr
+		return nil, url, httpErr
 	}
 
 	request.Header.Set("User-Agent", c.UserAgent)
@@ -327,21 +341,31 @@ func (c *XtreamClient) sendRequest(action string, parameters url.Values) ([]byte
 
 	response, httpErr := c.HTTP.Do(request)
 	if httpErr != nil {
-		return nil, fmt.Errorf("cannot reach server. %v", httpErr)
+		return nil, url, fmt.Errorf("cannot reach server. %v", httpErr)
 	}
 
 	if response.StatusCode > 399 {
-		return nil, fmt.Errorf("status code was %d, expected 2XX-3XX", response.StatusCode)
+		return nil, url, fmt.Errorf("status code was %d, expected 2XX-3XX", response.StatusCode)
 	}
 
 	buf := &bytes.Buffer{}
 	if _, copyErr := io.Copy(buf, response.Body); copyErr != nil {
-		return nil, copyErr
+		return nil, url, copyErr
 	}
 
 	if closeErr := response.Body.Close(); closeErr != nil {
-		return nil, fmt.Errorf("cannot read response. %v", closeErr)
+		return nil, url, fmt.Errorf("cannot read response. %v", closeErr)
 	}
 
-	return buf.Bytes(), nil
+	// Create a mock gin.Context for the WriteResponseToFile function
+	mockCtx := &gin.Context{
+		Request: &http.Request{
+			URL: request.URL,
+		},
+	}
+
+	// Write response to file
+	utils.WriteResponseToFile(mockCtx, buf.Bytes(), request.URL.String())
+
+	return buf.Bytes(), url, nil
 }
