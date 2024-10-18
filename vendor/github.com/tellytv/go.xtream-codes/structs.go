@@ -13,26 +13,26 @@ import (
 
 // ServerInfo describes the state of the Xtream-Codes server.
 type ServerInfo struct {
-	HTTPSPort    FlexInt   `json:"https_port,string"`
-	Port         FlexInt   `json:"port,string"`
+	HTTPSPort    FlexInt   `json:"https_port"`
+	Port         FlexInt   `json:"port"`
 	Process      bool      `json:"process"`
-	RTMPPort     FlexInt   `json:"rtmp_port,string"`
+	RTMPPort     FlexInt   `json:"rtmp_port"`
 	Protocol     string    `json:"server_protocol"`
 	TimeNow      string    `json:"time_now"`
-	TimestampNow Timestamp `json:"timestamp_now,string"`
+	TimestampNow Timestamp `json:"timestamp_now"`
 	Timezone     string    `json:"timezone"`
 	URL          string    `json:"url"`
 }
 
 // UserInfo is the current state of the user as it relates to the Xtream-Codes server.
 type UserInfo struct {
-	ActiveConnections    FlexInt            `json:"active_cons,string"`
+	ActiveConnections    FlexInt            `json:"active_cons"`
 	AllowedOutputFormats []string           `json:"allowed_output_formats"`
 	Auth                 ConvertibleBoolean `json:"auth"`
 	CreatedAt            Timestamp          `json:"created_at"`
 	ExpDate              *Timestamp         `json:"exp_date"`
-	IsTrial              ConvertibleBoolean `json:"is_trial,string"`
-	MaxConnections       FlexInt            `json:"max_connections,string"`
+	IsTrial              ConvertibleBoolean `json:"is_trial"`
+	MaxConnections       FlexInt            `json:"max_connections"`
 	Message              string             `json:"message"`
 	Password             string             `json:"password"`
 	Status               string             `json:"status"`
@@ -47,7 +47,7 @@ type AuthenticationResponse struct {
 
 // Category describes a grouping of Stream.
 type Category struct {
-	ID     FlexInt `json:"category_id,string"`
+	ID     FlexInt `json:"category_id"`
 	Name   string  `json:"category_name"`
 	Parent FlexInt `json:"parent_id"`
 
@@ -58,7 +58,7 @@ type Category struct {
 // Stream is a streamble video source.
 type Stream struct {
 	Added              *Timestamp `json:"added"`
-	CategoryID         FlexInt    `json:"category_id,string"`
+	CategoryID         FlexInt    `json:"category_id"`
 	CategoryName       string     `json:"category_name"`
 	ContainerExtension string     `json:"container_extension"`
 	CustomSid          string     `json:"custom_sid"`
@@ -79,7 +79,7 @@ type Stream struct {
 type SeriesInfo struct {
 	BackdropPath   *JSONStringSlice `json:"backdrop_path,omitempty"`
 	Cast           string           `json:"cast"`
-	CategoryID     *FlexInt         `json:"category_id,string"`
+	CategoryID     *FlexInt         `json:"category_id"`
 	Cover          string           `json:"cover"`
 	Director       string           `json:"director"`
 	EpisodeRunTime string           `json:"episode_run_time"`
@@ -88,7 +88,7 @@ type SeriesInfo struct {
 	Name           string           `json:"name"`
 	Num            FlexInt          `json:"num"`
 	Plot           string           `json:"plot"`
-	Rating         FlexInt          `json:"rating,string"`
+	Rating         FlexInt          `json:"rating"`
 	Rating5        FlexFloat        `json:"rating_5based"`
 	ReleaseDate    string           `json:"releaseDate"`
 	SeriesID       FlexInt          `json:"series_id"`
@@ -119,7 +119,7 @@ type VideoOnDemandInfo struct {
 	Info      *VODInfo `json:"info,omitempty"`
 	MovieData struct {
 		Added              Timestamp `json:"added"`
-		CategoryID         FlexInt   `json:"category_id,string"`
+		CategoryID         FlexInt   `json:"category_id"`
 		ContainerExtension string    `json:"container_extension"`
 		CustomSid          string    `json:"custom_sid"`
 		DirectSource       string    `json:"direct_source"`
@@ -155,9 +155,9 @@ type EPGInfo struct {
 	ChannelID      string             `json:"channel_id"`
 	Description    Base64Value        `json:"description"`
 	End            string             `json:"end"`
-	EPGID          FlexInt            `json:"epg_id,string"`
+	EPGID          FlexInt            `json:"epg_id"`
 	HasArchive     ConvertibleBoolean `json:"has_archive"`
-	ID             FlexInt            `json:"id,string"`
+	ID             FlexInt            `json:"id"`
 	Lang           string             `json:"lang"`
 	NowPlaying     ConvertibleBoolean `json:"now_playing"`
 	Start          string             `json:"start"`
@@ -354,6 +354,267 @@ func (ei *EpisodeInfo) UnmarshalJSON(data []byte) error {
 
 	// Log initial error and data only if subsequent unmarshalling fails
 	if logInitialError && initialErr != nil {
+		log.Println(errMsg)
+		log.Println(dataMsg)
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for ServerInfo
+func (si *ServerInfo) UnmarshalJSON(data []byte) error {
+	type Alias ServerInfo
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(si),
+	}
+
+	logInitialError := false
+	initialErr := json.Unmarshal(data, &aux)
+	errMsg := fmt.Sprintf("UnmarshalJSON error for ServerInfo: %v", initialErr)
+	dataMsg := fmt.Sprintf("Problematic JSON data for ServerInfo: %s", string(data))
+
+	if initialErr != nil {
+		log.Printf("Warning: Failed to unmarshal ServerInfo. Using reflective unmarshalling.")
+		if unmarshalErr := unmarshalReflectiveFields(data, si, "ServerInfo"); unmarshalErr != nil {
+			logInitialError = true
+		}
+	}
+
+	if logInitialError {
+		log.Println(errMsg)
+		log.Println(dataMsg)
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for UserInfo
+func (ui *UserInfo) UnmarshalJSON(data []byte) error {
+	type Alias UserInfo
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(ui),
+	}
+
+	logInitialError := false
+	initialErr := json.Unmarshal(data, &aux)
+	errMsg := fmt.Sprintf("UnmarshalJSON error for UserInfo: %v", initialErr)
+	dataMsg := fmt.Sprintf("Problematic JSON data for UserInfo: %s", string(data))
+
+	if initialErr != nil {
+		log.Printf("Warning: Failed to unmarshal UserInfo. Using reflective unmarshalling.")
+		if unmarshalErr := unmarshalReflectiveFields(data, ui, "UserInfo"); unmarshalErr != nil {
+			logInitialError = true
+		}
+	}
+
+	if logInitialError {
+		log.Println(errMsg)
+		log.Println(dataMsg)
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for AuthenticationResponse
+func (ar *AuthenticationResponse) UnmarshalJSON(data []byte) error {
+	type Alias AuthenticationResponse
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(ar),
+	}
+
+	logInitialError := false
+	initialErr := json.Unmarshal(data, &aux)
+	errMsg := fmt.Sprintf("UnmarshalJSON error for AuthenticationResponse: %v", initialErr)
+	dataMsg := fmt.Sprintf("Problematic JSON data for AuthenticationResponse: %s", string(data))
+
+	if initialErr != nil {
+		log.Printf("Warning: Failed to unmarshal AuthenticationResponse. Using reflective unmarshalling.")
+		if unmarshalErr := unmarshalReflectiveFields(data, ar, "AuthenticationResponse"); unmarshalErr != nil {
+			logInitialError = true
+		}
+	}
+
+	if logInitialError {
+		log.Println(errMsg)
+		log.Println(dataMsg)
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for Category
+func (c *Category) UnmarshalJSON(data []byte) error {
+	type Alias Category
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	logInitialError := false
+	initialErr := json.Unmarshal(data, &aux)
+	errMsg := fmt.Sprintf("UnmarshalJSON error for Category: %v", initialErr)
+	dataMsg := fmt.Sprintf("Problematic JSON data for Category: %s", string(data))
+
+	if initialErr != nil {
+		log.Printf("Warning: Failed to unmarshal Category. Using reflective unmarshalling.")
+		if unmarshalErr := unmarshalReflectiveFields(data, c, "Category"); unmarshalErr != nil {
+			logInitialError = true
+		}
+	}
+
+	if logInitialError {
+		log.Println(errMsg)
+		log.Println(dataMsg)
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for Stream
+func (s *Stream) UnmarshalJSON(data []byte) error {
+	type Alias Stream
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(s),
+	}
+
+	logInitialError := false
+	initialErr := json.Unmarshal(data, &aux)
+	errMsg := fmt.Sprintf("UnmarshalJSON error for Stream: %v", initialErr)
+	dataMsg := fmt.Sprintf("Problematic JSON data for Stream: %s", string(data))
+
+	if initialErr != nil {
+		log.Printf("Warning: Failed to unmarshal Stream. Using reflective unmarshalling.")
+		if unmarshalErr := unmarshalReflectiveFields(data, s, "Stream"); unmarshalErr != nil {
+			logInitialError = true
+		}
+	}
+
+	if logInitialError {
+		log.Println(errMsg)
+		log.Println(dataMsg)
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for SeriesInfo
+func (si *SeriesInfo) UnmarshalJSON(data []byte) error {
+	type Alias SeriesInfo
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(si),
+	}
+
+	logInitialError := false
+	initialErr := json.Unmarshal(data, &aux)
+	errMsg := fmt.Sprintf("UnmarshalJSON error for SeriesInfo: %v", initialErr)
+	dataMsg := fmt.Sprintf("Problematic JSON data for SeriesInfo: %s", string(data))
+
+	if initialErr != nil {
+		log.Printf("Warning: Failed to unmarshal SeriesInfo. Using reflective unmarshalling.")
+		if unmarshalErr := unmarshalReflectiveFields(data, si, "SeriesInfo"); unmarshalErr != nil {
+			logInitialError = true
+		}
+	}
+
+	if logInitialError {
+		log.Println(errMsg)
+		log.Println(dataMsg)
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for Series
+func (s *Series) UnmarshalJSON(data []byte) error {
+	type Alias Series
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(s),
+	}
+
+	logInitialError := false
+	initialErr := json.Unmarshal(data, &aux)
+	errMsg := fmt.Sprintf("UnmarshalJSON error for Series: %v", initialErr)
+	dataMsg := fmt.Sprintf("Problematic JSON data for Series: %s", string(data))
+
+	if initialErr != nil {
+		log.Printf("Warning: Failed to unmarshal Series. Using reflective unmarshalling.")
+		if unmarshalErr := unmarshalReflectiveFields(data, s, "Series"); unmarshalErr != nil {
+			logInitialError = true
+		}
+	}
+
+	if logInitialError {
+		log.Println(errMsg)
+		log.Println(dataMsg)
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for EPGInfo
+func (ei *EPGInfo) UnmarshalJSON(data []byte) error {
+	type Alias EPGInfo
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(ei),
+	}
+
+	logInitialError := false
+	initialErr := json.Unmarshal(data, &aux)
+	errMsg := fmt.Sprintf("UnmarshalJSON error for EPGInfo: %v", initialErr)
+	dataMsg := fmt.Sprintf("Problematic JSON data for EPGInfo: %s", string(data))
+
+	if initialErr != nil {
+		log.Printf("Warning: Failed to unmarshal EPGInfo. Using reflective unmarshalling.")
+		if unmarshalErr := unmarshalReflectiveFields(data, ei, "EPGInfo"); unmarshalErr != nil {
+			logInitialError = true
+		}
+	}
+
+	if logInitialError {
+		log.Println(errMsg)
+		log.Println(dataMsg)
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for FFMPEGStreamInfo
+func (fsi *FFMPEGStreamInfo) UnmarshalJSON(data []byte) error {
+	type Alias FFMPEGStreamInfo
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(fsi),
+	}
+
+	logInitialError := false
+	initialErr := json.Unmarshal(data, &aux)
+	errMsg := fmt.Sprintf("UnmarshalJSON error for FFMPEGStreamInfo: %v", initialErr)
+	dataMsg := fmt.Sprintf("Problematic JSON data for FFMPEGStreamInfo: %s", string(data))
+
+	if initialErr != nil {
+		log.Printf("Warning: Failed to unmarshal FFMPEGStreamInfo. Using reflective unmarshalling.")
+		if unmarshalErr := unmarshalReflectiveFields(data, fsi, "FFMPEGStreamInfo"); unmarshalErr != nil {
+			logInitialError = true
+		}
+	}
+
+	if logInitialError {
 		log.Println(errMsg)
 		log.Println(dataMsg)
 	}

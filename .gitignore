@@ -19,3 +19,6 @@ iptv/iptv.m3u
 # Backup files
 *.bak
 
+/.history
+/.lh
+
