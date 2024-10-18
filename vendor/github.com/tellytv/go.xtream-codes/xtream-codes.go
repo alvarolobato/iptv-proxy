@@ -233,7 +233,7 @@ func (c *XtreamClient) GetSeriesInfo(seriesID string) (*Series, error) {
 		return nil, fmt.Errorf("series ID can not be empty")
 	}
 
-	seriesData, url, seriesErr := c.sendRequestWithURL("get_series_info", url.Values{"series_id": []string{seriesID}})
+	seriesData, _, seriesErr := c.sendRequestWithURL("get_series_info", url.Values{"series_id": []string{seriesID}})
 	if seriesErr != nil {
 		return nil, seriesErr
 	}
@@ -241,9 +241,9 @@ func (c *XtreamClient) GetSeriesInfo(seriesID string) (*Series, error) {
 	seriesInfo := &Series{}
 
 	jsonErr := json.Unmarshal(seriesData, &seriesInfo)
-	if jsonErr != nil {
-		utils.WriteResponseToFileWithOverwrite(nil, seriesData, false, url)
-	}
+	// if jsonErr != nil {
+	// 	utils.WriteResponseToFileWithOverwrite(nil, seriesData, false, url)
+	// }
 
 	return seriesInfo, jsonErr
 }
@@ -254,7 +254,7 @@ func (c *XtreamClient) GetVideoOnDemandInfo(vodID string) (*VideoOnDemandInfo, e
 		return nil, fmt.Errorf("vod ID can not be empty")
 	}
 
-	vodData, url, vodErr := c.sendRequestWithURL("get_vod_info", url.Values{"vod_id": []string{vodID}})
+	vodData, _, vodErr := c.sendRequestWithURL("get_vod_info", url.Values{"vod_id": []string{vodID}})
 	if vodErr != nil {
 		return nil, vodErr
 	}
@@ -262,9 +262,9 @@ func (c *XtreamClient) GetVideoOnDemandInfo(vodID string) (*VideoOnDemandInfo, e
 	vodInfo := &VideoOnDemandInfo{}
 
 	jsonErr := json.Unmarshal(vodData, &vodInfo)
-	if jsonErr != nil {
-		utils.WriteResponseToFileWithOverwrite(nil, vodData, false, url)
-	}
+	// if jsonErr != nil {
+	// 	utils.WriteResponseToFileWithOverwrite(nil, vodData, false, url)
+	// }
 
 	return vodInfo, jsonErr
 }
