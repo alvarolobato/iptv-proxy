@@ -71,6 +71,33 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
+		log.Printf("")
+		log.Printf("Available environment variables:")
+
+		config.DebugLoggingEnabled = viper.GetBool("debug-logging")
+		if !config.DebugLoggingEnabled {
+			log.Printf("  DEBUG_LOGGING=true  (Currently not set - 'true' enables debug logging)")
+		} else {
+			log.Printf("  DEBUG_LOGGING=%t", config.DebugLoggingEnabled)
+		}
+		config.CacheFolder = viper.GetString("cache-folder")
+		if config.CacheFolder == "" {
+			log.Printf("  CACHE_FOLDER=/root/iptv/cache/  (Currently not set - if path provided, the IPTV Provider responses will be saved at this location)")
+		} else {
+			// Ensure CacheFolder ends with a '/'
+			if config.CacheFolder != "" && !strings.HasSuffix(config.CacheFolder, "/") {
+				config.CacheFolder += "/"
+			}
+			log.Printf("  CACHE_FOLDER=%s", config.CacheFolder)
+		}
+		config.UseXtreamAdvancedParsing = viper.GetBool("use-xtream-advanced-parsing")
+		if !config.UseXtreamAdvancedParsing {
+			log.Printf("  USE_XTREAM_ADVANCED_PARSING=true  (Currently not set - 'true' forwards the raw JSON response from the IPTV Provider for some requests, instead of remapping to (partial) internal data structure)")
+		} else {
+			log.Printf("  USE_XTREAM_ADVANCED_PARSING=%t", config.UseXtreamAdvancedParsing)
+		}
+		log.Printf("")
+
 		conf := &config.ProxyConfig{
 			HostConfig: &config.HostConfiguration{
 				Hostname: viper.GetString("hostname"),

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,12 @@ import (
 )
 
 var defaultUserAgent = "go.xstream-codes (Go-http-client/1.1)"
+
+var useAdvancedParsing bool
+
+func init() {
+	useAdvancedParsing = os.Getenv("USE_XTREAM_ADVANCED_PARSING") == "true"
+}
 
 // XtreamClient is the client used to communicate with a Xtream-Codes server.
 type XtreamClient struct {
@@ -228,7 +235,7 @@ func (c *XtreamClient) GetSeries(categoryID string) ([]SeriesInfo, error) {
 }
 
 // GetSeriesInfo will return a series info for the given seriesID.
-func (c *XtreamClient) GetSeriesInfo(seriesID string) (*Series, error) {
+func (c *XtreamClient) GetSeriesInfo(seriesID string) (interface{} /**Series*/, error) {
 	if seriesID == "" {
 		return nil, fmt.Errorf("series ID can not be empty")
 	}
@@ -238,18 +245,24 @@ func (c *XtreamClient) GetSeriesInfo(seriesID string) (*Series, error) {
 		return nil, seriesErr
 	}
 
-	seriesInfo := &Series{}
+	if useAdvancedParsing {
+		debugLog("- Using Advanced Parsing for: Series")
+		var rawData map[string]json.RawMessage
+		jsonErr := json.Unmarshal(seriesData, &rawData)
 
-	jsonErr := json.Unmarshal(seriesData, &seriesInfo)
-	// if jsonErr != nil {
-	// 	utils.WriteResponseToFileWithOverwrite(nil, seriesData, false, url)
-	// }
+		return rawData, jsonErr
 
-	return seriesInfo, jsonErr
+	} else {
+		seriesInfo := &Series{}
+
+		jsonErr := json.Unmarshal(seriesData, &seriesInfo)
+
+		return seriesInfo, jsonErr
+	}
 }
 
 // GetVideoOnDemandInfo will return VOD info for the given vodID.
-func (c *XtreamClient) GetVideoOnDemandInfo(vodID string) (*VideoOnDemandInfo, error) {
+func (c *XtreamClient) GetVideoOnDemandInfo(vodID string) (interface{} /**VideoOnDemandInfo*/, error) {
 	if vodID == "" {
 		return nil, fmt.Errorf("vod ID can not be empty")
 	}
@@ -259,14 +272,19 @@ func (c *XtreamClient) GetVideoOnDemandInfo(vodID string) (*VideoOnDemandInfo, e
 		return nil, vodErr
 	}
 
-	vodInfo := &VideoOnDemandInfo{}
+	if useAdvancedParsing {
+		debugLog("- Using Advanced Parsing for: VideoOnDemandInfo")
+		var rawData map[string]json.RawMessage
+		jsonErr := json.Unmarshal(vodData, &rawData)
 
-	jsonErr := json.Unmarshal(vodData, &vodInfo)
-	// if jsonErr != nil {
-	// 	utils.WriteResponseToFileWithOverwrite(nil, vodData, false, url)
-	// }
+		return rawData, jsonErr
+	} else {
+		vodInfo := &VideoOnDemandInfo{}
 
-	return vodInfo, jsonErr
+		jsonErr := json.Unmarshal(vodData, &vodInfo)
+
+		return vodInfo, jsonErr
+	}
 }
 
 // GetShortEPG returns a short version of the EPG for the given streamID. If no limit is provided, the next 4 items in the EPG will be returned.

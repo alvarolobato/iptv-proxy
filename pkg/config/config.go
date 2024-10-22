@@ -22,6 +22,16 @@ import (
 	"net/url"
 )
 
+// Add Debugging Logging option
+var DebugLoggingEnabled bool
+
+// Set a Cache Folder to save responses into
+var CacheFolder string
+
+// Indicate that we would like to use Advanced Parsing of the JSON response
+// This preserves the original response from the IPTV Provider
+var UseXtreamAdvancedParsing bool
+
 // CredentialString represents an iptv-proxy credential.
 type CredentialString string
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
+	"github.com/pierre-emmanuelJ/iptv-proxy/pkg/config"
 )
 
 func WriteResponseToFile(ctx *gin.Context, resp interface{}, optionalURL ...string) {
@@ -16,7 +17,11 @@ func WriteResponseToFile(ctx *gin.Context, resp interface{}, optionalURL ...stri
 
 func WriteResponseToFileWithOverwrite(ctx *gin.Context, resp interface{}, overwrite bool, optionalURL ...string) {
 	// Define the cache directory
-	cacheDir := "/root/iptv/cache/"
+	cacheDir := config.CacheFolder
+	if cacheDir == "" {
+		// No where to save the files.
+		return
+	}
 
 	// Ensure the cache directory exists
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
@@ -56,9 +61,9 @@ func WriteResponseToFileWithOverwrite(ctx *gin.Context, resp interface{}, overwr
 			log.Printf("Error writing to file: %v", err)
 		} else {
 			if fileExists {
-				log.Printf("File overwritten: %s", filename)
+				DebugLog("File overwritten: %s", filename)
 			} else {
-				log.Printf("Response written to new file: %s", filename)
+				DebugLog("Response written to new file: %s", filename)
 			}
 		}
 		// } else {

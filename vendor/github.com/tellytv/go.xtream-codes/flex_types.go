@@ -83,10 +83,14 @@ func (f FlexInt) MarshalJSON() ([]byte, error) {
 
 func (f *FlexInt) UnmarshalJSON(data []byte) error {
 	var v int64
-
+	originalData := string(data)
 	data = bytes.Trim(data, `" `)
+	trimmedData := string(data)
 
 	err := json.Unmarshal(data, &v)
+	if err != nil {
+		debugLog("FlexInt UnmarshalJSON error: %v (original: %s, trimmed: %s, Data type: %T, Data length: %d)", err, originalData, trimmedData, data, len(data))
+	}
 	*f = FlexInt(v)
 	return err
 }

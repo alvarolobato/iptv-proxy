@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/pierre-emmanuelJ/iptv-proxy/pkg/utils"
 )
 
 func (c *Config) getM3U(ctx *gin.Context) {
@@ -63,7 +64,7 @@ func (c *Config) m3u8ReverseProxy(ctx *gin.Context) {
 }
 
 func (c *Config) stream(ctx *gin.Context, oriURL *url.URL) {
-	log.Println("-> Incoming URL: ", ctx.Request.URL) // Or use c.Request.URL.Path for exact request path
+	utils.DebugLog("-> Incoming URL: %s", ctx.Request.URL) // Or use c.Request.URL.Path for exact request path
 
 	client := &http.Client{}
 
@@ -130,7 +131,7 @@ type authRequest struct {
 }
 
 func (c *Config) authenticate(ctx *gin.Context) {
-	log.Println("-> Incoming URL: ", ctx.Request.URL) // Or use c.Request.URL.Path for exact request path
+	utils.DebugLog("-> Incoming URL: %s", ctx.Request.URL) // Or use c.Request.URL.Path for exact request path
 
 	var authReq authRequest
 	if err := ctx.Bind(&authReq); err != nil {
@@ -143,7 +144,7 @@ func (c *Config) authenticate(ctx *gin.Context) {
 }
 
 func (c *Config) appAuthenticate(ctx *gin.Context) {
-	log.Println("-> Incoming URL: ", ctx.Request.URL) // Or use c.Request.URL.Path for exact request path
+	utils.DebugLog("-> Incoming URL: %s", ctx.Request.URL) // Or use c.Request.URL.Path for exact request path
 
 	contents, err := ioutil.ReadAll(ctx.Request.Body)
 	if err != nil {

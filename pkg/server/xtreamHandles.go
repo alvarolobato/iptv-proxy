@@ -19,6 +19,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -33,6 +34,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jamesnetherton/m3u"
+	"github.com/pierre-emmanuelJ/iptv-proxy/pkg/config"
+	"github.com/pierre-emmanuelJ/iptv-proxy/pkg/utils"
 	xtreamapi "github.com/pierre-emmanuelJ/iptv-proxy/pkg/xtream-proxy"
 	uuid "github.com/satori/go.uuid"
 )
@@ -266,14 +269,14 @@ func (c *Config) xtreamPlayerAPI(ctx *gin.Context, q url.Values) {
 
 	client, err := xtreamapi.New(c.XtreamUser.String(), c.XtreamPassword.String(), c.XtreamBaseURL, ctx.Request.UserAgent())
 	if err != nil {
-		log.Printf("-> ** xtreamPlayerAPI: xtreamapi.New - error: " + err.Error())
+		utils.DebugLog("-> ** xtreamPlayerAPI: xtreamapi.New - error: " + err.Error())
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
 
 	resp, httpcode, err := client.Action(c.ProxyConfig, action, q)
 	if err != nil {
-		log.Printf("-> ** xtreamPlayerAPI: client.Action - error: " + err.Error())
+		utils.DebugLog("-> ** xtreamPlayerAPI: client.Action - error: " + err.Error())
 		ctx.AbortWithError(httpcode, err) // nolint: errcheck
 		return
 	}
@@ -281,22 +284,24 @@ func (c *Config) xtreamPlayerAPI(ctx *gin.Context, q url.Values) {
 	log.Printf("[iptv-proxy] %v | %s |Action\t%s\n", time.Now().Format("2006/01/02 - 15:04:05"), ctx.ClientIP(), action)
 
 	// Write response to file
-	// utils.WriteResponseToFile(ctx, resp)
-
+	if config.CacheFolder != "" {
+		readableJSON, _ := json.Marshal(resp)
+		utils.WriteResponseToFile(ctx, readableJSON)
+	}
 	ctx.JSON(http.StatusOK, resp)
 }
 
 func (c *Config) xtreamXMLTV(ctx *gin.Context) {
 	client, err := xtreamapi.New(c.XtreamUser.String(), c.XtreamPassword.String(), c.XtreamBaseURL, ctx.Request.UserAgent())
 	if err != nil {
-		log.Printf("-> ** xtreamXMLTV: xtreamapi.New - error: " + err.Error())
+		utils.DebugLog("-> ** xtreamXMLTV: xtreamapi.New - error: " + err.Error())
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
 
 	resp, err := client.GetXMLTV()
 	if err != nil {
-		log.Printf("-> ** xtreamXMLTV: client.GetXMLTV - error: " + err.Error())
+		utils.DebugLog("-> ** xtreamXMLTV: client.GetXMLTV - error: " + err.Error())
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
@@ -311,7 +316,7 @@ func (c *Config) xtreamStreamHandler(ctx *gin.Context) {
 	id := ctx.Param("id")
 	rpURL, err := url.Parse(fmt.Sprintf("%s/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
 	if err != nil {
-		log.Printf("-> ** xtreamStreamHandler: url.Parse - error: " + err.Error())
+		utils.DebugLog("-> ** xtreamStreamHandler: url.Parse - error: " + err.Error())
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
@@ -323,7 +328,7 @@ func (c *Config) xtreamStreamLive(ctx *gin.Context) {
 	id := ctx.Param("id")
 	rpURL, err := url.Parse(fmt.Sprintf("%s/live/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
 	if err != nil {
-		log.Printf("-> ** xtreamStreamLive: url.Parse - error: " + err.Error())
+		utils.DebugLog("-> ** xtreamStreamLive: url.Parse - error: " + err.Error())
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
@@ -336,7 +341,7 @@ func (c *Config) xtreamStreamPlay(ctx *gin.Context) {
 	t := ctx.Param("type")
 	rpURL, err := url.Parse(fmt.Sprintf("%s/play/%s/%s", c.XtreamBaseURL, token, t))
 	if err != nil {
-		log.Printf("-> ** xtreamStreamPlay: url.Parse - error: " + err.Error())
+		utils.DebugLog("-> ** xtreamStreamPlay: url.Parse - error: " + err.Error())
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
@@ -350,7 +355,7 @@ func (c *Config) xtreamStreamTimeshift(ctx *gin.Context) {
 	id := ctx.Param("id")
 	rpURL, err := url.Parse(fmt.Sprintf("%s/timeshift/%s/%s/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, duration, start, id))
 	if err != nil {
-		log.Printf("-> ** xtreamStreamTimeshift: url.Parse - error: " + err.Error())
+		utils.DebugLog("-> ** xtreamStreamTimeshift: url.Parse - error: " + err.Error())
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
@@ -362,7 +367,7 @@ func (c *Config) xtreamStreamMovie(ctx *gin.Context) {
 	id := ctx.Param("id")
 	rpURL, err := url.Parse(fmt.Sprintf("%s/movie/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
 	if err != nil {
-		log.Printf("-> ** xtreamStreamMovie: url.Parse - error: " + err.Error())
+		utils.DebugLog("-> ** xtreamStreamMovie: url.Parse - error: " + err.Error())
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
@@ -374,7 +379,7 @@ func (c *Config) xtreamStreamSeries(ctx *gin.Context) {
 	id := ctx.Param("id")
 	rpURL, err := url.Parse(fmt.Sprintf("%s/series/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
 	if err != nil {
-		log.Printf("-> ** xtreamStreamSeries: url.Parse - error: " + err.Error())
+		utils.DebugLog("-> ** xtreamStreamSeries: url.Parse - error: " + err.Error())
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}

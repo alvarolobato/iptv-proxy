@@ -8,12 +8,42 @@ import (
 	"testing"
 )
 
+// -- Helper Functions --
 // loadTestData loads JSON test data from the structs_test_data folder
 func loadTestData(filename string) ([]byte, error) {
 	path := filepath.Join("structs_test_data", filename)
 	return os.ReadFile(path)
 }
 
+// withEnv sets a single environment variable for the duration of a function
+func withEnv(key, value string, f func()) {
+	oldValue := os.Getenv(key)
+	os.Setenv(key, value)
+	defer os.Setenv(key, oldValue)
+	f()
+}
+
+// withEnvs sets multiple environment variables for the duration of a function
+func withEnvs(envVars map[string]string, f func()) {
+	// Save old values
+	oldValues := make(map[string]string)
+	for key, value := range envVars {
+		oldValues[key] = os.Getenv(key)
+		os.Setenv(key, value)
+	}
+
+	// Defer restoration of old values
+	defer func() {
+		for key, oldValue := range oldValues {
+			os.Setenv(key, oldValue)
+		}
+	}()
+
+	// Run the function
+	f()
+}
+
+// -- Tests --
 func TestAuthenticationResponseUnmarshal(t *testing.T) {
 	jsonData, err := loadTestData("authentication_response.json")
 	if err != nil {
@@ -22,10 +52,13 @@ func TestAuthenticationResponseUnmarshal(t *testing.T) {
 	log.Printf("Loaded test data file: %s", "authentication_response.json")
 
 	var authResponse AuthenticationResponse
-	err = json.Unmarshal(jsonData, &authResponse)
-	if err != nil {
-		t.Fatalf("Failed to unmarshal AuthenticationResponse: %v", err)
-	}
+	// Using withEnvs for multiple environment variables
+	withEnvs(map[string]string{"TEST_ALL_VALUES": "true", "DETECT_NEW_FIELDS": "true"}, func() {
+		err = json.Unmarshal(jsonData, &authResponse)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal AuthenticationResponse: %v", err)
+		}
+	})
 
 	// Pretty print the entire AuthenticationResponse
 	prettyJSON, err := json.MarshalIndent(authResponse, "", "  ")
