@@ -47,6 +47,7 @@ type AuthenticationResponse struct {
 
 // Category describes a grouping of Stream.
 type Category struct {
+	Fields []byte  `json:"-"`
 	ID     FlexInt `json:"category_id"`
 	Name   string  `json:"category_name"`
 	Parent FlexInt `json:"parent_id"`
@@ -57,6 +58,7 @@ type Category struct {
 
 // Stream is a streamble video source.
 type Stream struct {
+	Fields             []byte     `json:"-"`
 	Added              *Timestamp `json:"added"`
 	CategoryID         FlexInt    `json:"category_id"`
 	CategoryName       string     `json:"category_name"`
@@ -77,6 +79,7 @@ type Stream struct {
 
 // SeriesInfo contains information about a TV series.
 type SeriesInfo struct {
+	Fields         []byte           `json:"-"`
 	BackdropPath   *JSONStringSlice `json:"backdrop_path,omitempty"`
 	Cast           string           `json:"cast"`
 	CategoryID     *FlexInt         `json:"category_id"`
@@ -109,6 +112,7 @@ type SeriesEpisode struct {
 }
 
 type Series struct {
+	Fields   []byte                     `json:"-"`
 	Episodes map[string][]SeriesEpisode `json:"episodes"`
 	Info     SeriesInfo                 `json:"info"`
 	Seasons  []interface{}              `json:"seasons"`
@@ -116,6 +120,7 @@ type Series struct {
 
 // VideoOnDemandInfo contains information about a video on demand stream.
 type VideoOnDemandInfo struct {
+	Fields    []byte   `json:"-"`
 	Info      *VODInfo `json:"info,omitempty"`
 	MovieData struct {
 		Added              Timestamp `json:"added"`

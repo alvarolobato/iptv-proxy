@@ -28,6 +28,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,7 @@ import (
 	"github.com/pierre-emmanuelJ/iptv-proxy/pkg/utils"
 	xtreamapi "github.com/pierre-emmanuelJ/iptv-proxy/pkg/xtream-proxy"
 	uuid "github.com/satori/go.uuid"
+	xtream "github.com/tellytv/go.xtream-codes"
 )
 
 type cacheMeta struct {
@@ -283,12 +285,98 @@ func (c *Config) xtreamPlayerAPI(ctx *gin.Context, q url.Values) {
 
 	log.Printf("[iptv-proxy] %v | %s |Action\t%s\n", time.Now().Format("2006/01/02 - 15:04:05"), ctx.ClientIP(), action)
 
-	// Write response to file
+	processedResp := ProcessResponse(resp)
+
 	if config.CacheFolder != "" {
-		readableJSON, _ := json.Marshal(resp)
+		readableJSON, _ := json.Marshal(processedResp)
 		utils.WriteResponseToFile(ctx, readableJSON)
 	}
-	ctx.JSON(http.StatusOK, resp)
+
+	ctx.JSON(http.StatusOK, processedResp)
+}
+
+// ProcessResponse processes various types of xtream-codes responses
+func ProcessResponse(resp interface{}) interface{} {
+
+	respType := reflect.TypeOf(resp)
+
+	switch {
+	case respType == nil:
+		return resp
+	case strings.Contains(respType.String(), "[]xtreamcodes."):
+		return processXtreamArray(resp)
+	case strings.Contains(respType.String(), "xtreamcodes."):
+		return processXtreamStruct(resp)
+	default:
+		utils.DebugLog("-- ProcessResponse: no case for type=%v", respType)
+	}
+	return resp
+}
+
+func processXtreamArray(arr interface{}) interface{} {
+	v := reflect.ValueOf(arr)
+	if v.Kind() != reflect.Slice {
+		return arr
+	}
+
+	if v.Len() == 0 {
+		return arr
+	}
+
+	// Check if the first item is an xtreamcodes struct having a Fields field
+	if !isXtreamCodesStruct(v.Index(0).Interface()) {
+		return arr
+	}
+
+	result := make([]interface{}, v.Len())
+	for i := 0; i < v.Len(); i++ {
+		result[i] = processXtreamStruct(v.Index(i).Interface())
+	}
+
+	return result
+}
+
+// Define a helper function to check if fields exist
+func hasFieldsField(item interface{}) bool {
+	respValue := reflect.ValueOf(item)
+	if respValue.Kind() == reflect.Ptr {
+		respValue = respValue.Elem()
+	}
+
+	// Check for specific fields, e.g., "Fields"
+	fieldValue := respValue.FieldByName(xtream.StructFields)
+	return fieldValue.IsValid() && !fieldValue.IsNil()
+}
+
+func isXtreamCodesStruct(item interface{}) bool {
+	respType := reflect.TypeOf(item)
+	return respType != nil && strings.Contains(respType.String(), "xtreamcodes.") && hasFieldsField(item)
+}
+
+func processXtreamStruct(item interface{}) interface{} {
+	if isXtreamCodesStruct(item) {
+		respValue := reflect.ValueOf(item)
+		if respValue.Kind() == reflect.Ptr {
+			respValue = respValue.Elem()
+		}
+
+		fieldValue := respValue.FieldByName(xtream.StructFields)
+		if fieldValue.IsValid() && !fieldValue.IsNil() {
+
+			if fieldValue.Kind() == reflect.Slice && fieldValue.Type().Elem().Kind() == reflect.Uint8 {
+				var unmarshaledValue interface{}
+				err := json.Unmarshal(fieldValue.Interface().([]byte), &unmarshaledValue)
+				if err != nil {
+					utils.DebugLog("-- processXtreamStruct: JSON unmarshal error: %v", err)
+					return fieldValue.Interface()
+				}
+				return unmarshaledValue
+			}
+
+			return fieldValue.Interface()
+		}
+	}
+	return item
 }
 
 func (c *Config) xtreamXMLTV(ctx *gin.Context) {

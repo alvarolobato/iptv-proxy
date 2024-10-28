@@ -1,5 +1,9 @@
 package xtreamcodes
 
+const (
+	StructFields = "Fields"
+)
+
 // ServerInfoFields contains constants for ServerInfo struct JSON field names
 const (
 	ServerInfoFieldHTTPSPort    = "https_port"

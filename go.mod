@@ -10,6 +10,7 @@ require (
 	github.com/spf13/cobra v1.2.1
 	github.com/spf13/viper v1.8.1
 	github.com/tellytv/go.xtream-codes v0.0.0-20220204001149-59925bc76764
+	github.com/buger/jsonparser v1.1.1
 )
 
 require (
