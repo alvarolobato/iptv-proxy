@@ -71,6 +71,7 @@ func NewClient(username, password, baseURL string) (*XtreamClient, error) {
 	a := &AuthenticationResponse{}
 
 	if jsonErr := json.Unmarshal(authData, &a); jsonErr != nil {
+		debugLog("-> NewClient unmarshalling error for AuthenticationResponse - error: %s", jsonErr.Error())
 		return nil, fmt.Errorf("error unmarshaling json: %s", jsonErr.Error())
 	}
 
@@ -177,6 +178,9 @@ func (c *XtreamClient) GetCategories(catType string) ([]Category, error) {
 		return cats, jsonErr
 	} else {
 		jsonErr := json.Unmarshal(catData, &cats)
+		if jsonErr != nil {
+			debugLog("-> GetCategories unmarshalling error for []Category - error: %s", jsonErr.Error())
+		}
 
 		for idx := range cats {
 			cats[idx].Type = catType
@@ -264,6 +268,7 @@ func (c *XtreamClient) GetStreams(streamAction, categoryID string) ([]Stream, er
 		return streams, jsonErr
 	} else {
 		if jsonErr := json.Unmarshal(streamData, &streams); jsonErr != nil {
+			debugLog("-> GetStreams unmarshalling error for []Stream - error: %s", jsonErr.Error())
 			return nil, jsonErr
 		}
 
@@ -310,6 +315,9 @@ func (c *XtreamClient) GetSeries(categoryID string) ([]SeriesInfo, error) {
 		return seriesInfos, jsonErr
 	} else {
 		jsonErr := json.Unmarshal(seriesData, &seriesInfos)
+		if jsonErr != nil {
+			debugLog("-> GetSeries unmarshalling error for []SeriesInfo - error: %s", jsonErr.Error())
+		}
 
 		return seriesInfos, jsonErr
 	}
@@ -338,6 +346,9 @@ func (c *XtreamClient) GetSeriesInfo(seriesID string) (*Series, error) {
 		seriesInfo := &Series{}
 
 		jsonErr := json.Unmarshal(seriesData, &seriesInfo)
+		if jsonErr != nil {
+			debugLog("-> GetSeriesInfo unmarshalling error for Series - error: %s", jsonErr.Error())
+		}
 
 		return seriesInfo, jsonErr
 	}
@@ -366,7 +377,9 @@ func (c *XtreamClient) GetVideoOnDemandInfo(vodID string) (*VideoOnDemandInfo, e
 		vodInfo := &VideoOnDemandInfo{}
 
 		jsonErr := json.Unmarshal(vodData, &vodInfo)
-
+		if jsonErr != nil {
+			debugLog("- GetVideoOnDemandInfo unmarshalling error for VideoOnDemandInfo - error: %s", jsonErr.Error())
+		}
 		return vodInfo, jsonErr
 	}
 }
@@ -409,6 +422,9 @@ func (c *XtreamClient) getEPG(action, streamID string, limit int) ([]EPGInfo, er
 	epgContainer := &epgContainer{}
 
 	jsonErr := json.Unmarshal(epgData, &epgContainer)
+	if jsonErr != nil {
+		debugLog("-> getEPG unmarshalling error for epgContainer - error: %s", jsonErr.Error())
+	}
 
 	return epgContainer.EPGListings, jsonErr
 }

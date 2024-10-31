@@ -26,6 +26,7 @@ import (
 	"strconv"
 
 	"github.com/pierre-emmanuelJ/iptv-proxy/pkg/config"
+	"github.com/pierre-emmanuelJ/iptv-proxy/pkg/utils"
 	xtream "github.com/tellytv/go.xtream-codes"
 )
 
@@ -103,40 +104,64 @@ func (c *Client) Action(config *config.ProxyConfig, action string, q url.Values)
 	switch action {
 	case getLiveCategories:
 		respBody, err = c.GetLiveCategories()
+		if err != nil {
+			utils.DebugLog(">> xtream-proxy: getLiveCategories - err: %s", err.Error())
+		}
 	case getLiveStreams:
 		categoryID := ""
 		if len(q["category_id"]) > 0 {
 			categoryID = q["category_id"][0]
 		}
 		respBody, err = c.GetLiveStreams(categoryID)
+		if err != nil {
+			utils.DebugLog(">> xtream-proxy: GetLiveStreams - err: %s", err.Error())
+		}
 	case getVodCategories:
 		respBody, err = c.GetVideoOnDemandCategories()
+		if err != nil {
+			utils.DebugLog(">> xtream-proxy: GetVideoOnDemandCategories - err: %s", err.Error())
+		}
 	case getVodStreams:
 		categoryID := ""
 		if len(q["category_id"]) > 0 {
 			categoryID = q["category_id"][0]
 		}
 		respBody, err = c.GetVideoOnDemandStreams(categoryID)
+		if err != nil {
+			utils.DebugLog(">> xtream-proxy: GetVideoOnDemandStreams - err: %s", err.Error())
+		}
 	case getVodInfo:
 		httpcode, err = validateParams(q, "vod_id")
 		if err != nil {
 			return
 		}
 		respBody, err = c.GetVideoOnDemandInfo(q["vod_id"][0])
+		if err != nil {
+			utils.DebugLog(">> xtream-proxy: GetVideoOnDemandInfo - err: %s", err.Error())
+		}
 	case getSeriesCategories:
 		respBody, err = c.GetSeriesCategories()
+		if err != nil {
+			utils.DebugLog(">> xtream-proxy: GetSeriesCategories - err: %s", err.Error())
+		}
 	case getSeries:
 		categoryID := ""
 		if len(q["category_id"]) > 0 {
 			categoryID = q["category_id"][0]
 		}
 		respBody, err = c.GetSeries(categoryID)
+		if err != nil {
+			utils.DebugLog(">> xtream-proxy: GetSeries - err: %s", err.Error())
+		}
 	case getSerieInfo:
 		httpcode, err = validateParams(q, "series_id")
 		if err != nil {
 			return
 		}
 		respBody, err = c.GetSeriesInfo(q["series_id"][0])
+		if err != nil {
+			utils.DebugLog(">> xtream-proxy: GetSeriesInfo - err: %s", err.Error())
+		}
 	case getShortEPG:
 		limit := 0
 
@@ -152,14 +177,23 @@ func (c *Client) Action(config *config.ProxyConfig, action string, q url.Values)
 			}
 		}
 		respBody, err = c.GetShortEPG(q["stream_id"][0], limit)
+		if err != nil {
+			utils.DebugLog(">> xtream-proxy: GetShortEPG - err: %s", err.Error())
+		}
 	case getSimpleDataTable:
 		httpcode, err = validateParams(q, "stream_id")
 		if err != nil {
 			return
 		}
 		respBody, err = c.GetEPG(q["stream_id"][0])
+		if err != nil {
+			utils.DebugLog(">> xtream-proxy: GetEPG - err: %s", err.Error())
+		}
 	default:
 		respBody, err = c.login(config.User.String(), config.Password.String(), protocol+"://"+config.HostConfig.Hostname, config.AdvertisedPort, protocol)
+		if err != nil {
+			utils.DebugLog(">> xtream-proxy: login - err: %s", err.Error())
+		}
 	}
 
 	return

@@ -644,8 +644,9 @@ func unmarshalReflectiveFields(data []byte, v interface{}, fieldName string) err
 
 	processedFields := make(map[string]bool)
 	var errors []string
+	var fieldsFoundDetails []string
 
-	debugLog("Fields for %s:", fieldName)
+	fieldsFoundDetails = append(fieldsFoundDetails, fmt.Sprintf("Fields for %s:", fieldName))
 	for i := 0; i < value.NumField(); i++ {
 		field := value.Type().Field(i)
 		jsonTag := field.Tag.Get("json")
@@ -665,7 +666,7 @@ func unmarshalReflectiveFields(data []byte, v interface{}, fieldName string) err
 			}
 
 			fieldValue := value.Field(i)
-			debugLog("  %s: %s - Unmarshalling value: %s", jsonTag, field.Type, string(rawValue))
+			fieldsFoundDetails = append(fieldsFoundDetails, fmt.Sprintf("  %s: %s - Unmarshalling value: %s", jsonTag, field.Type, string(rawValue)))
 
 			if fieldValue.CanSet() {
 				err := json.Unmarshal(rawValue, fieldValue.Addr().Interface())
@@ -694,6 +695,10 @@ func unmarshalReflectiveFields(data []byte, v interface{}, fieldName string) err
 	}
 
 	if len(errors) > 0 {
+		// If we have detected an error, then also show the fields that were found.
+		for _, fieldDetail := range fieldsFoundDetails {
+			debugLog(fieldDetail)
+		}
 		return fmt.Errorf("unmarshalReflectiveFields encountered %d error(s) for %s: %s", len(errors), fieldName, strings.Join(errors, "; "))
 	}
 
