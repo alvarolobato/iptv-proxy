@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/buger/jsonparser"
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,8 @@ var defaultUserAgent = "go.xstream-codes (Go-http-client/1.1)"
 var useAdvancedParsing bool
 
 func init() {
-	useAdvancedParsing = os.Getenv("USE_XTREAM_ADVANCED_PARSING") == "true"
+	// Use advanced parsing by default, unless legacy parsing is explicitly enabled
+	useAdvancedParsing = os.Getenv("USE_XTREAM_LEGACY_PARSING") != "true"
 }
 
 // XtreamClient is the client used to communicate with a Xtream-Codes server.
@@ -71,8 +73,7 @@ func NewClient(username, password, baseURL string) (*XtreamClient, error) {
 	a := &AuthenticationResponse{}
 
 	if jsonErr := json.Unmarshal(authData, &a); jsonErr != nil {
-		debugLog("-> NewClient unmarshalling error for AuthenticationResponse - error: %s", jsonErr.Error())
-		return nil, fmt.Errorf("error unmarshaling json: %s", jsonErr.Error())
+		return nil, utils.PrintErrorAndReturn(fmt.Errorf("error unmarshaling json: %s", jsonErr.Error()))
 	}
 
 	client.ServerInfo = a.ServerInfo
@@ -161,11 +162,9 @@ func (c *XtreamClient) GetCategories(catType string) ([]Category, error) {
 	cats := make([]Category, 0)
 
 	if useAdvancedParsing {
-		debugLog("- GetCategories using Advanced Parsing for: []Category")
-
 		_, jsonErr := jsonparser.ArrayEach(catData, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
 			if err != nil {
-				debugLog(">> GetCategories - Error iterating through array: %s", err.Error())
+				utils.PrintErrorAndReturn(err)
 				return
 			}
 
@@ -177,9 +176,11 @@ func (c *XtreamClient) GetCategories(catType string) ([]Category, error) {
 
 		return cats, jsonErr
 	} else {
+		debugLog("- GetCategories using Legacy Parsing for: []Category")
+
 		jsonErr := json.Unmarshal(catData, &cats)
 		if jsonErr != nil {
-			debugLog("-> GetCategories unmarshalling error for []Category - error: %s", jsonErr.Error())
+			utils.PrintErrorAndReturn(jsonErr)
 		}
 
 		for idx := range cats {
@@ -225,11 +226,9 @@ func (c *XtreamClient) GetStreams(streamAction, categoryID string) ([]Stream, er
 	streams := make([]Stream, 0)
 
 	if useAdvancedParsing {
-		debugLog("- GetStreams using Advanced Parsing for: []Stream")
-
 		_, jsonErr := jsonparser.ArrayEach(streamData, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
 			if err != nil {
-				debugLog(">> GetStreams - Error iterating through array: %s", err.Error())
+				utils.PrintErrorAndReturn(err)
 				return
 			}
 
@@ -267,9 +266,10 @@ func (c *XtreamClient) GetStreams(streamAction, categoryID string) ([]Stream, er
 
 		return streams, jsonErr
 	} else {
+		debugLog("- GetStreams using Legacy Parsing for: []Stream")
+
 		if jsonErr := json.Unmarshal(streamData, &streams); jsonErr != nil {
-			debugLog("-> GetStreams unmarshalling error for []Stream - error: %s", jsonErr.Error())
-			return nil, jsonErr
+			return nil, utils.PrintErrorAndReturn(jsonErr)
 		}
 
 		for _, stream := range streams {
@@ -297,11 +297,9 @@ func (c *XtreamClient) GetSeries(categoryID string) ([]SeriesInfo, error) {
 	seriesInfos := make([]SeriesInfo, 0)
 
 	if useAdvancedParsing {
-		debugLog("- GetSeries using Advanced Parsing for: []SeriesInfo")
-
 		_, jsonErr := jsonparser.ArrayEach(seriesData, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
 			if err != nil {
-				debugLog(">> GetSeries - Error iterating through array: %s", err.Error())
+				utils.PrintErrorAndReturn(err)
 				return
 			}
 
@@ -314,9 +312,11 @@ func (c *XtreamClient) GetSeries(categoryID string) ([]SeriesInfo, error) {
 
 		return seriesInfos, jsonErr
 	} else {
+		debugLog("- GetSeries using Legacy Parsing for: []SeriesInfo")
+
 		jsonErr := json.Unmarshal(seriesData, &seriesInfos)
 		if jsonErr != nil {
-			debugLog("-> GetSeries unmarshalling error for []SeriesInfo - error: %s", jsonErr.Error())
+			utils.PrintErrorAndReturn(jsonErr)
 		}
 
 		return seriesInfos, jsonErr
@@ -335,19 +335,19 @@ func (c *XtreamClient) GetSeriesInfo(seriesID string) (*Series, error) {
 	}
 
 	if useAdvancedParsing {
-		debugLog("- GetSeriesInfo using Advanced Parsing for: Series")
-
 		seriesInfo := &Series{
 			Fields: seriesData,
 		}
 
 		return seriesInfo, nil
 	} else {
+		debugLog("- GetSeriesInfo using Legacy Parsing for: Series")
+
 		seriesInfo := &Series{}
 
 		jsonErr := json.Unmarshal(seriesData, &seriesInfo)
 		if jsonErr != nil {
-			debugLog("-> GetSeriesInfo unmarshalling error for Series - error: %s", jsonErr.Error())
+			utils.PrintErrorAndReturn(jsonErr)
 		}
 
 		return seriesInfo, jsonErr
@@ -366,19 +366,19 @@ func (c *XtreamClient) GetVideoOnDemandInfo(vodID string) (*VideoOnDemandInfo, e
 	}
 
 	if useAdvancedParsing {
-		debugLog("- GetVideoOnDemandInfo using Advanced Parsing for: VideoOnDemandInfo")
-
 		vodInfo := &VideoOnDemandInfo{
 			Fields: vodData,
 		}
 
 		return vodInfo, nil
 	} else {
+		debugLog("- GetVideoOnDemandInfo using Legacy Parsing for: VideoOnDemandInfo")
+
 		vodInfo := &VideoOnDemandInfo{}
 
 		jsonErr := json.Unmarshal(vodData, &vodInfo)
 		if jsonErr != nil {
-			debugLog("- GetVideoOnDemandInfo unmarshalling error for VideoOnDemandInfo - error: %s", jsonErr.Error())
+			utils.PrintErrorAndReturn(jsonErr)
 		}
 		return vodInfo, jsonErr
 	}
@@ -423,7 +423,7 @@ func (c *XtreamClient) getEPG(action, streamID string, limit int) ([]EPGInfo, er
 
 	jsonErr := json.Unmarshal(epgData, &epgContainer)
 	if jsonErr != nil {
-		debugLog("-> getEPG unmarshalling error for epgContainer - error: %s", jsonErr.Error())
+		utils.PrintErrorAndReturn(jsonErr)
 	}
 
 	return epgContainer.EPGListings, jsonErr
@@ -482,8 +482,10 @@ func (c *XtreamClient) sendRequestWithURL(action string, parameters url.Values) 
 		},
 	}
 
+	contentType := strings.Split(response.Header.Get("Content-Type"), ";")[0]
+
 	// Write response to file
-	utils.WriteResponseToFile(mockCtx, buf.Bytes())
+	utils.WriteResponseToFile(mockCtx, buf.Bytes(), contentType)
 
 	return buf.Bytes(), url, nil
 }

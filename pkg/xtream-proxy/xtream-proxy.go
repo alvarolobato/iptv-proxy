@@ -52,7 +52,7 @@ type Client struct {
 func New(user, password, baseURL, userAgent string) (*Client, error) {
 	cli, err := xtream.NewClientWithUserAgent(context.Background(), user, password, baseURL, userAgent)
 	if err != nil {
-		return nil, err
+		return nil, utils.PrintErrorAndReturn(err)
 	}
 
 	return &Client{cli}, nil
@@ -95,17 +95,20 @@ func (c *Client) login(proxyUser, proxyPassword, proxyURL string, proxyPort int,
 }
 
 // Action execute an xtream action.
-func (c *Client) Action(config *config.ProxyConfig, action string, q url.Values) (respBody interface{}, httpcode int, err error) {
+func (c *Client) Action(config *config.ProxyConfig, action string, q url.Values) (respBody interface{}, httpcode int, contentType string, err error) {
 	protocol := "http"
 	if config.HTTPS {
 		protocol = "https"
 	}
 
+	// Default content type for most responses
+	contentType = "application/json"
+
 	switch action {
 	case getLiveCategories:
 		respBody, err = c.GetLiveCategories()
 		if err != nil {
-			utils.DebugLog(">> xtream-proxy: getLiveCategories - err: %s", err.Error())
+			err = utils.PrintErrorAndReturn(err)
 		}
 	case getLiveStreams:
 		categoryID := ""
@@ -114,12 +117,12 @@ func (c *Client) Action(config *config.ProxyConfig, action string, q url.Values)
 		}
 		respBody, err = c.GetLiveStreams(categoryID)
 		if err != nil {
-			utils.DebugLog(">> xtream-proxy: GetLiveStreams - err: %s", err.Error())
+			err = utils.PrintErrorAndReturn(err)
 		}
 	case getVodCategories:
 		respBody, err = c.GetVideoOnDemandCategories()
 		if err != nil {
-			utils.DebugLog(">> xtream-proxy: GetVideoOnDemandCategories - err: %s", err.Error())
+			err = utils.PrintErrorAndReturn(err)
 		}
 	case getVodStreams:
 		categoryID := ""
@@ -128,21 +131,22 @@ func (c *Client) Action(config *config.ProxyConfig, action string, q url.Values)
 		}
 		respBody, err = c.GetVideoOnDemandStreams(categoryID)
 		if err != nil {
-			utils.DebugLog(">> xtream-proxy: GetVideoOnDemandStreams - err: %s", err.Error())
+			err = utils.PrintErrorAndReturn(err)
 		}
 	case getVodInfo:
 		httpcode, err = validateParams(q, "vod_id")
 		if err != nil {
+			err = utils.PrintErrorAndReturn(err)
 			return
 		}
 		respBody, err = c.GetVideoOnDemandInfo(q["vod_id"][0])
 		if err != nil {
-			utils.DebugLog(">> xtream-proxy: GetVideoOnDemandInfo - err: %s", err.Error())
+			err = utils.PrintErrorAndReturn(err)
 		}
 	case getSeriesCategories:
 		respBody, err = c.GetSeriesCategories()
 		if err != nil {
-			utils.DebugLog(">> xtream-proxy: GetSeriesCategories - err: %s", err.Error())
+			err = utils.PrintErrorAndReturn(err)
 		}
 	case getSeries:
 		categoryID := ""
@@ -151,48 +155,52 @@ func (c *Client) Action(config *config.ProxyConfig, action string, q url.Values)
 		}
 		respBody, err = c.GetSeries(categoryID)
 		if err != nil {
-			utils.DebugLog(">> xtream-proxy: GetSeries - err: %s", err.Error())
+			err = utils.PrintErrorAndReturn(err)
 		}
 	case getSerieInfo:
 		httpcode, err = validateParams(q, "series_id")
 		if err != nil {
+			err = utils.PrintErrorAndReturn(err)
 			return
 		}
 		respBody, err = c.GetSeriesInfo(q["series_id"][0])
 		if err != nil {
-			utils.DebugLog(">> xtream-proxy: GetSeriesInfo - err: %s", err.Error())
+			err = utils.PrintErrorAndReturn(err)
 		}
 	case getShortEPG:
 		limit := 0
 
 		httpcode, err = validateParams(q, "stream_id")
 		if err != nil {
+			err = utils.PrintErrorAndReturn(err)
 			return
 		}
 		if len(q["limit"]) > 0 {
 			limit, err = strconv.Atoi(q["limit"][0])
 			if err != nil {
 				httpcode = http.StatusInternalServerError
+				err = utils.PrintErrorAndReturn(err)
 				return
 			}
 		}
 		respBody, err = c.GetShortEPG(q["stream_id"][0], limit)
 		if err != nil {
-			utils.DebugLog(">> xtream-proxy: GetShortEPG - err: %s", err.Error())
+			err = utils.PrintErrorAndReturn(err)
 		}
 	case getSimpleDataTable:
 		httpcode, err = validateParams(q, "stream_id")
 		if err != nil {
+			err = utils.PrintErrorAndReturn(err)
 			return
 		}
 		respBody, err = c.GetEPG(q["stream_id"][0])
 		if err != nil {
-			utils.DebugLog(">> xtream-proxy: GetEPG - err: %s", err.Error())
+			err = utils.PrintErrorAndReturn(err)
 		}
 	default:
 		respBody, err = c.login(config.User.String(), config.Password.String(), protocol+"://"+config.HostConfig.Hostname, config.AdvertisedPort, protocol)
 		if err != nil {
-			utils.DebugLog(">> xtream-proxy: login - err: %s", err.Error())
+			err = utils.PrintErrorAndReturn(err)
 		}
 	}
 

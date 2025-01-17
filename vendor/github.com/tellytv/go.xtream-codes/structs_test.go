@@ -64,8 +64,8 @@ func TestAuthenticationResponseUnmarshal(t *testing.T) {
 	prettyJSON, err := json.MarshalIndent(authResponse, "", "  ")
 	if err != nil {
 		t.Fatalf("Failed to marshal AuthenticationResponse to pretty JSON: %v", err)
+		log.Printf("AuthenticationResponse:\n%s", string(prettyJSON))
 	}
-	log.Printf("AuthenticationResponse:\n%s", string(prettyJSON))
 }
 
 func TestServerInfoUnmarshal(t *testing.T) {
@@ -85,8 +85,8 @@ func TestServerInfoUnmarshal(t *testing.T) {
 	prettyJSON, err := json.MarshalIndent(serverInfo, "", "  ")
 	if err != nil {
 		t.Fatalf("Failed to marshal ServerInfo to pretty JSON: %v", err)
+		log.Printf("ServerInfo:\n%s", string(prettyJSON))
 	}
-	log.Printf("ServerInfo:\n%s", string(prettyJSON))
 }
 
 func TestUserInfoUnmarshal(t *testing.T) {
@@ -106,8 +106,8 @@ func TestUserInfoUnmarshal(t *testing.T) {
 	prettyJSON, err := json.MarshalIndent(userInfo, "", "  ")
 	if err != nil {
 		t.Fatalf("Failed to marshal UserInfo to pretty JSON: %v", err)
+		log.Printf("UserInfo:\n%s", string(prettyJSON))
 	}
-	log.Printf("UserInfo:\n%s", string(prettyJSON))
 }
 
 func TestCategoryUnmarshal(t *testing.T) {
@@ -127,8 +127,8 @@ func TestCategoryUnmarshal(t *testing.T) {
 	prettyJSON, err := json.MarshalIndent(category, "", "  ")
 	if err != nil {
 		t.Fatalf("Failed to marshal Category to pretty JSON: %v", err)
+		log.Printf("Category:\n%s", string(prettyJSON))
 	}
-	log.Printf("Category:\n%s", string(prettyJSON))
 }
 
 func TestStreamUnmarshal(t *testing.T) {
@@ -148,8 +148,8 @@ func TestStreamUnmarshal(t *testing.T) {
 	prettyJSON, err := json.MarshalIndent(stream, "", "  ")
 	if err != nil {
 		t.Fatalf("Failed to marshal Stream to pretty JSON: %v", err)
+		log.Printf("Stream:\n%s", string(prettyJSON))
 	}
-	log.Printf("Stream:\n%s", string(prettyJSON))
 }
 
 func TestSeriesInfoUnmarshal(t *testing.T) {
@@ -169,8 +169,8 @@ func TestSeriesInfoUnmarshal(t *testing.T) {
 	prettyJSON, err := json.MarshalIndent(seriesInfo, "", "  ")
 	if err != nil {
 		t.Fatalf("Failed to marshal SeriesInfo to pretty JSON: %v", err)
+		log.Printf("SeriesInfo:\n%s", string(prettyJSON))
 	}
-	log.Printf("SeriesInfo:\n%s", string(prettyJSON))
 }
 
 func TestSeriesEpisodeUnmarshal(t *testing.T) {
@@ -190,8 +190,8 @@ func TestSeriesEpisodeUnmarshal(t *testing.T) {
 	prettyJSON, err := json.MarshalIndent(seriesEpisode, "", "  ")
 	if err != nil {
 		t.Fatalf("Failed to marshal SeriesEpisode to pretty JSON: %v", err)
+		log.Printf("SeriesEpisode:\n%s", string(prettyJSON))
 	}
-	log.Printf("SeriesEpisode:\n%s", string(prettyJSON))
 }
 
 func TestSeriesUnmarshal(t *testing.T) {
@@ -211,8 +211,8 @@ func TestSeriesUnmarshal(t *testing.T) {
 	prettyJSON, err := json.MarshalIndent(series, "", "  ")
 	if err != nil {
 		t.Fatalf("Failed to marshal Series to pretty JSON: %v", err)
+		log.Printf("Series:\n%s", string(prettyJSON))
 	}
-	log.Printf("Series:\n%s", string(prettyJSON))
 }
 
 func TestVideoOnDemandInfoUnmarshal(t *testing.T) {
@@ -232,8 +232,8 @@ func TestVideoOnDemandInfoUnmarshal(t *testing.T) {
 	prettyJSON, err := json.MarshalIndent(vodInfo, "", "  ")
 	if err != nil {
 		t.Fatalf("Failed to marshal VideoOnDemandInfo to pretty JSON: %v", err)
+		log.Printf("VideoOnDemandInfo:\n%s", string(prettyJSON))
 	}
-	log.Printf("VideoOnDemandInfo:\n%s", string(prettyJSON))
 }
 
 func TestVODInfoUnmarshal(t *testing.T) {
@@ -253,8 +253,8 @@ func TestVODInfoUnmarshal(t *testing.T) {
 	prettyJSON, err := json.MarshalIndent(vodInfo, "", "  ")
 	if err != nil {
 		t.Fatalf("Failed to marshal VODInfo to pretty JSON: %v", err)
+		log.Printf("VODInfo:\n%s", string(prettyJSON))
 	}
-	log.Printf("VODInfo:\n%s", string(prettyJSON))
 }
 
 func TestEPGInfoUnmarshal(t *testing.T) {
@@ -274,8 +274,8 @@ func TestEPGInfoUnmarshal(t *testing.T) {
 	prettyJSON, err := json.MarshalIndent(epgInfo, "", "  ")
 	if err != nil {
 		t.Fatalf("Failed to marshal EPGInfo to pretty JSON: %v", err)
+		log.Printf("EPGInfo:\n%s", string(prettyJSON))
 	}
-	log.Printf("EPGInfo:\n%s", string(prettyJSON))
 }
 
 func TestEpisodeInfoUnmarshal(t *testing.T) {
@@ -295,6 +295,6 @@ func TestEpisodeInfoUnmarshal(t *testing.T) {
 	prettyJSON, err := json.MarshalIndent(episodeInfo, "", "  ")
 	if err != nil {
 		t.Fatalf("Failed to marshal EpisodeInfo to pretty JSON: %v", err)
+		log.Printf("EpisodeInfo:\n%s", string(prettyJSON))
 	}
-	log.Printf("EpisodeInfo:\n%s", string(prettyJSON))
 }

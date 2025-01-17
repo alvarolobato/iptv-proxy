@@ -1,110 +1,108 @@
 package utils
 
 import (
-	"encoding/json"
 	"fmt"
-	"log"
-	"reflect"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
 
-// ErrorWithLocation wraps an error with file and line information
-func ErrorWithLocation(err error) error {
+// ErrorDetailLevel represents the level of error detail to display
+type ErrorDetailLevel int
+
+const (
+	// ErrorDetailNone suppresses all additional error information
+	ErrorDetailNone ErrorDetailLevel = iota
+	// ErrorDetailSimple shows basic file, line and function information (default)
+	ErrorDetailSimple
+	// ErrorDetailFull shows complete error information including stack traces
+	ErrorDetailFull
+)
+
+// getErrorDetailLevel returns the configured error detail level from environment
+func getErrorDetailLevel() ErrorDetailLevel {
+	level := strings.ToLower(os.Getenv("ERROR_DETAIL_LEVEL"))
+	switch level {
+	case "none":
+		return ErrorDetailNone
+	case "full":
+		return ErrorDetailFull
+	default:
+		return ErrorDetailSimple // Default to simple error output
+	}
+}
+
+// formatError formats the error based on the detail level
+func formatError(err error) error {
 	if err == nil {
 		return nil
 	}
 
-	_, file, line, ok := runtime.Caller(1)
+	// Get the caller information
+	pc, file, line, ok := runtime.Caller(1)
 	if !ok {
 		return fmt.Errorf("error occurred: %v", err)
 	}
 
-	return fmt.Errorf("%s:%d: %v", file, line, err)
+	// Get function name
+	fn := runtime.FuncForPC(pc)
+	fnName := fn.Name()
+
+	// Only return full error if specifically requested
+	if getErrorDetailLevel() == ErrorDetailFull {
+		// Capture stack trace
+		buffer := make([]byte, 4096)
+		n := runtime.Stack(buffer, false)
+		stackTrace := string(buffer[:n])
+
+		// Format stack trace
+		stackLines := strings.Split(stackTrace, "\n")
+		if len(stackLines) > 0 {
+			stackLines = stackLines[1:]
+		}
+		cleanedStack := strings.Join(stackLines, "\n")
+
+		return fmt.Errorf(`
+Error Location:
+  Full Path: %s
+  File: %s
+  Line: %d
+  Function: %s
+Error Details:
+  %v
+Stack Trace:
+%s`, file, filepath.Base(file), line, fnName, err, cleanedStack)
+	}
+
+	// Create and return simple error format for both None and Simple detail levels
+	return fmt.Errorf("%s:%d [%s]: %v",
+		filepath.Base(file),
+		line,
+		filepath.Base(fnName),
+		err)
 }
 
-// PrintJSONErrorContext returns a string containing the context around a JSON error
-func PrintJSONErrorContext(data []byte, offset int64) string {
-	start := offset - 20
-	if start < 0 {
-		start = 0
+// ErrorWithLocation wraps an error with location information based on detail level
+func ErrorWithLocation(err error) error {
+	if err == nil {
+		return nil
 	}
-	end := offset + 20
-	if end > int64(len(data)) {
-		end = int64(len(data))
-	}
-	return strings.Replace(string(data[start:end]), "\n", " ", -1)
+	return formatError(err)
 }
 
-func UnmarshalReflectiveFields(data []byte, v interface{}, fieldName string) error {
-	var objMap map[string]json.RawMessage
-	if err := json.Unmarshal(data, &objMap); err != nil {
-		return fmt.Errorf("error unmarshaling %s: %v", fieldName, err)
+// PrintErrorAndReturn prints the error to stderr (if detail level is not None) and returns it
+func PrintErrorAndReturn(err error) error {
+	if err == nil {
+		return nil
 	}
 
-	valuePtr := reflect.ValueOf(v)
-	if valuePtr.Kind() != reflect.Ptr {
-		return fmt.Errorf("%s must be a pointer", fieldName)
-	}
-	value := valuePtr.Elem()
+	wrappedErr := formatError(err)
 
-	// Create a map to track which fields have been processed
-	processedFields := make(map[string]bool)
-
-	// Create a slice to store errors
-	var errors []string
-
-	for i := 0; i < value.NumField(); i++ {
-		field := value.Type().Field(i)
-		jsonTag := field.Tag.Get("json")
-		if jsonTag == "" {
-			jsonTag = field.Name
-		}
-		if jsonTag == "-" {
-			continue
-		}
-		jsonTag = strings.Split(jsonTag, ",")[0]
-
-		processedFields[jsonTag] = true
-
-		if rawValue, ok := objMap[jsonTag]; ok {
-			// Check if the value is empty or an empty array
-			if len(rawValue) == 0 || string(rawValue) == "\"\"" || string(rawValue) == "[]" || string(rawValue) == "[null]" {
-				continue
-			}
-
-			fieldValue := value.Field(i)
-			if fieldValue.CanSet() {
-				err := json.Unmarshal(rawValue, fieldValue.Addr().Interface())
-				if err != nil {
-					errMsg := fmt.Sprintf("Error unmarshaling field %s.%s (value: %s): %v", fieldName, field.Name, string(rawValue), err)
-					log.Printf("Warning: %s", errMsg)
-					errors = append(errors, errMsg)
-					// Continue with other fields instead of returning an error
-				}
-			}
-		}
+	// Only print to console if detail level is not None
+	if getErrorDetailLevel() != ErrorDetailNone {
+		fmt.Fprintln(os.Stderr, wrappedErr)
 	}
 
-	/*
-	   // Log fields in the JSON that are not in the struct
-	   for jsonField, rawValue := range objMap {
-	       if !processedFields[jsonField] {
-	           var value interface{}
-	           err := json.Unmarshal(rawValue, &value)
-	           if err != nil {
-	               log.Printf("Warning: Error unmarshaling extra field %s.%s: %v", fieldName, jsonField, err)
-	               // } else {
-	               //  log.Printf("Extra field in %s: %s = %v", fieldName, jsonField, value)
-	           }
-	       }
-	   }
-	*/
-
-	// If there were any errors during the process, return an error
-	if len(errors) > 0 {
-		return fmt.Errorf("unmarshalReflectiveFields encountered %d error(s) for %s: %s", len(errors), fieldName, strings.Join(errors, "; "))
-	}
-
-	return nil
+	return wrappedErr
 }
