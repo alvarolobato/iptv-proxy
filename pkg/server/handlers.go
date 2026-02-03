@@ -78,6 +78,10 @@ func (c *Config) stream(ctx *gin.Context, oriURL *url.URL) {
 	// Do not forward Authorization/Proxy-Authorization headers from the client to upstream
 	req.Header.Del("Authorization")
 	req.Header.Del("Proxy-Authorization")
+	// Forward Range header to support partial content requests (HTTP 206)
+	if ctx.Request.Header.Get("Range") != "" {
+		req.Header.Set("Range", ctx.Request.Header.Get("Range"))
+	}
 	mergeHttpHeader(req.Header, ctx.Request.Header)
 
 	resp, err := client.Do(req)
