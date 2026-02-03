@@ -4,10 +4,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    volumes:
+    #volumes:
       # If your are using local m3u file instead of m3u remote file
       # put your m3u file in this folder
-      - ./iptv:/root/iptv
+      #- ./iptv:/root/iptv
     container_name: "iptv-proxy"
     restart: on-failure
     ports:
@@ -16,18 +16,24 @@ services:
     environment:
       # if you are using m3u remote file
       # M3U_URL: https://example.com/iptvfile.m3u
-      M3U_URL: /root/iptv/iptv.m3u
+      #M3U_URL: "http://odm391.xyz/get.php?username=2XM6XBW&password=8655X1C&type=m3u_plus&output=m3u8"
       # Port to expose the IPTVs endpoints
       PORT: 8080
       # Hostname or IP to expose the IPTVs endpoints (for machine not for docker)
-      HOSTNAME: localhost
+      HOSTNAME: "0.0.0.0"
       GIN_MODE: release
+      USER_AGENT: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      REFERER: "http://....com" # change for iptv provider domain
+      TIMEOUT: 30000
       ## Xtream-code proxy configuration
-      XTREAM_USER: xtream_user
-      XTREAM_PASSWORD: xtream_password
-      XTREAM_BASE_URL: "http://example.tv:8080"
+      # change for iptv provider username
+      XTREAM_USER: username 
+      # change for iptv provider password
+      XTREAM_PASSWORD: password
+      XTREAM_BASE_URL: "http://....com" # change for iptv provider domain
       ##### UNSAFE AUTH TODO ADD REAL AUTH
       #will be used for m3u and xtream auth poxy
-      USER: test
-      PASSWORD: testpassword
-
+      # change for custom username
+      USER: my_custom_username
+      # change for custom password
+      PASSWORD: my_custom_password
