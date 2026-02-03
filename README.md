@@ -21,7 +21,9 @@ git clone https://github.com/chernandezweb/iptv-proxy.git
 
 ## 4. Create provider logins
 
-Edit `~/iptv-proxy/docker-compose.yml`:
+```bash
+sudo nano ~/iptv-proxy/docker-compose.yml
+```
 
 ```yaml
 version: "3"
