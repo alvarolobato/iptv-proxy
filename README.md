@@ -1,9 +1,11 @@
-## 1. Update the system and install prerequisites
-
-SSH to vps
+## SSH to vps
 ```bash
 ssh root@0.0.0.0.0
 ```
+
+## 1. Update the system and install prerequisites
+
+
 
 ```bash
 apt update && apt upgrade -y
