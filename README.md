@@ -1,5 +1,10 @@
 ## 1. Update the system and install prerequisites
 
+SSH to vps
+```bash
+ssh root@0.0.0.0.0
+```
+
 ```bash
 apt update && apt upgrade -y
 apt install -y docker.io docker-compose curl nano git jq
