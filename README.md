@@ -80,3 +80,24 @@ cd ~/iptv-proxy
 docker compose down
 docker compose up -d --build
 ```
+## ------------------------------------------------
+## To see logs
+## ------------------------------------------------
+
+```bash
+docker logs iptv-proxy
+```
+
+## ------------------------------------------------
+## To change provider and account info
+## ------------------------------------------------
+
+```bash
+nano ~/iptv-proxy/docker-compose.yml
+```
+
+```bash
+cd ~/iptv-proxy
+docker compose down
+docker compose up -d --build
+```
