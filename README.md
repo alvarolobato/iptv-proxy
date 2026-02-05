@@ -93,7 +93,7 @@ docker logs iptv-proxy
 ## ------------------------------------------------
 
 ```bash
-nano ~/iptv-proxy/docker-compose.yml
+sudo nano ~/iptv-proxy/docker-compose.yml
 ```
 
 ```bash
