@@ -27,8 +27,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/jamesnetherton/m3u"
@@ -53,11 +51,6 @@ type Config struct {
 	proxyfiedM3UPath string
 
 	endpointAntiColision string
-
-	// XMLTV cache
-	xmltvCache     []byte
-	xmltvCacheTime time.Time
-	xmltvCacheMutex sync.RWMutex
 }
 
 // NewServer initialize a new server configuration
@@ -81,9 +74,6 @@ func NewServer(config *config.ProxyConfig) (*Config, error) {
 		nil,
 		defaultProxyfiedM3UPath,
 		endpointAntiColision,
-		nil,
-		time.Time{},
-		sync.RWMutex{},
 	}, nil
 }
 
