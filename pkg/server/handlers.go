@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -65,29 +66,21 @@ func (c *Config) m3u8ReverseProxy(ctx *gin.Context) {
 func (c *Config) stream(ctx *gin.Context, oriURL *url.URL) {
 	client := &http.Client{}
 
-	req, err := http.NewRequest("GET", oriURL.String(), nil)
+	forwardRange := ctx.Request.Header.Get("Range") != ""
+	resp, err := c.forwardStreamRequest(ctx, client, oriURL, forwardRange)
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
 
-	// Ensure upstream receives a sensible User-Agent and other headers from the client
-	if ctx.Request.UserAgent() != "" && req.Header.Get("User-Agent") == "" {
-		req.Header.Set("User-Agent", ctx.Request.UserAgent())
-	}
-	// Do not forward Authorization/Proxy-Authorization headers from the client to upstream
-	req.Header.Del("Authorization")
-	req.Header.Del("Proxy-Authorization")
-	// Forward Range header to support partial content requests (HTTP 206)
-	if ctx.Request.Header.Get("Range") != "" {
-		req.Header.Set("Range", ctx.Request.Header.Get("Range"))
-	}
-	mergeHttpHeader(req.Header, ctx.Request.Header)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-		return
+	if forwardRange && shouldRetryWithoutRange(resp) {
+		log.Printf("[iptv-proxy] Upstream %s returned 206 with zero/invalid payload (Range=%q); retrying without Range header", oriURL.String(), ctx.Request.Header.Get("Range"))
+		resp.Body.Close()
+		resp, err = c.forwardStreamRequest(ctx, client, oriURL, false)
+		if err != nil {
+			ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+			return
+		}
 	}
 	defer resp.Body.Close()
 
@@ -124,6 +117,56 @@ func (c *Config) stream(ctx *gin.Context, oriURL *url.URL) {
 		io.Copy(w, resp.Body) // nolint: errcheck
 		return false
 	})
+}
+
+func (c *Config) forwardStreamRequest(ctx *gin.Context, client *http.Client, oriURL *url.URL, forwardRange bool) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx.Request.Context(), "GET", oriURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	mergeHttpHeader(req.Header, ctx.Request.Header)
+
+	if ua := ctx.Request.UserAgent(); ua != "" {
+		req.Header.Set("User-Agent", ua)
+	}
+
+	// Do not leak client auth headers to the upstream provider.
+	req.Header.Del("Authorization")
+	req.Header.Del("Proxy-Authorization")
+
+	if forwardRange && ctx.Request.Header.Get("Range") != "" {
+		req.Header.Set("Range", ctx.Request.Header.Get("Range"))
+	} else {
+		req.Header.Del("Range")
+		req.Header.Del("If-Range")
+	}
+
+	return client.Do(req)
+}
+
+func shouldRetryWithoutRange(resp *http.Response) bool {
+	if resp == nil || resp.StatusCode != http.StatusPartialContent {
+		return false
+	}
+
+	if resp.Header.Get("Content-Range") == "" {
+		return true
+	}
+
+	if resp.ContentLength == 0 {
+		return true
+	}
+
+	if resp.ContentLength < 0 {
+		if cl := strings.TrimSpace(resp.Header.Get("Content-Length")); cl != "" {
+			if v, err := strconv.ParseInt(cl, 10, 64); err == nil {
+				return v == 0
+			}
+		}
+	}
+
+	return false
 }
 
 func (c *Config) xtreamStream(ctx *gin.Context, oriURL *url.URL) {
