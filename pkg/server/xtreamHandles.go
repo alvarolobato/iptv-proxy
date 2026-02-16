@@ -369,9 +369,14 @@ func (c *Config) xtreamPlayerAPI(ctx *gin.Context, q url.Values) {
 }
 
 func (c *Config) xtreamXMLTV(ctx *gin.Context) {
-	const maxRetries = 3
-	const retryDelay = 2 * time.Second
+	const maxRetries = 2
+	const retryDelay = 500 * time.Millisecond
 	const cacheValidityDuration = 5 * time.Minute
+
+	// Minimal valid XMLTV structure (empty EPG)
+	emptyXMLTV := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE tv SYSTEM "xmltv.dtd">
+<tv></tv>`)
 
 	// Check if we have a valid cached response
 	c.xmltvCacheMutex.RLock()
@@ -384,7 +389,7 @@ func (c *Config) xtreamXMLTV(ctx *gin.Context) {
 	}
 	c.xmltvCacheMutex.RUnlock()
 
-	// Try to fetch fresh XMLTV with retries
+	// Try to fetch fresh XMLTV with fast retries
 	var lastErr error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		client, err := xtreamapi.New(c.XtreamUser.String(), c.XtreamPassword.String(), c.XtreamBaseURL, ctx.Request.UserAgent())
@@ -428,9 +433,9 @@ func (c *Config) xtreamXMLTV(ctx *gin.Context) {
 	}
 	c.xmltvCacheMutex.RUnlock()
 
-	// No cache available, return error
-	log.Printf("[iptv-proxy] XMLTV fetch failed after %d attempts and no cache available: %v", maxRetries, lastErr)
-	ctx.AbortWithError(http.StatusInternalServerError, lastErr) // nolint: errcheck
+	// No cache available, return empty but valid XMLTV to prevent player black screen
+	log.Printf("[iptv-proxy] XMLTV fetch failed after %d attempts and no cache available, returning empty XMLTV: %v", maxRetries, lastErr)
+	ctx.Data(http.StatusOK, "application/xml", emptyXMLTV)
 }
 
 func (c *Config) xtreamStreamHandler(ctx *gin.Context) {
