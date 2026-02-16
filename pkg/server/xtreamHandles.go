@@ -369,19 +369,68 @@ func (c *Config) xtreamPlayerAPI(ctx *gin.Context, q url.Values) {
 }
 
 func (c *Config) xtreamXMLTV(ctx *gin.Context) {
-	client, err := xtreamapi.New(c.XtreamUser.String(), c.XtreamPassword.String(), c.XtreamBaseURL, ctx.Request.UserAgent())
-	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+	const maxRetries = 3
+	const retryDelay = 2 * time.Second
+	const cacheValidityDuration = 5 * time.Minute
+
+	// Check if we have a valid cached response
+	c.xmltvCacheMutex.RLock()
+	if len(c.xmltvCache) > 0 && time.Since(c.xmltvCacheTime) < cacheValidityDuration {
+		log.Printf("[iptv-proxy] Returning cached XMLTV (cached %v ago)", time.Since(c.xmltvCacheTime).Round(time.Second))
+		cachedData := c.xmltvCache
+		c.xmltvCacheMutex.RUnlock()
+		ctx.Data(http.StatusOK, "application/xml", cachedData)
 		return
 	}
+	c.xmltvCacheMutex.RUnlock()
 
-	resp, err := client.GetXMLTV()
-	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-		return
+	// Try to fetch fresh XMLTV with retries
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		client, err := xtreamapi.New(c.XtreamUser.String(), c.XtreamPassword.String(), c.XtreamBaseURL, ctx.Request.UserAgent())
+		if err != nil {
+			lastErr = err
+			log.Printf("[iptv-proxy] XMLTV client creation failed (attempt %d/%d): %v", attempt, maxRetries, err)
+			if attempt < maxRetries {
+				time.Sleep(retryDelay)
+				continue
+			}
+			break
+		}
+
+		resp, err := client.GetXMLTV()
+		if err == nil {
+			// Success! Cache it and return
+			c.xmltvCacheMutex.Lock()
+			c.xmltvCache = resp
+			c.xmltvCacheTime = time.Now()
+			c.xmltvCacheMutex.Unlock()
+			log.Printf("[iptv-proxy] Successfully fetched and cached XMLTV (attempt %d/%d)", attempt, maxRetries)
+			ctx.Data(http.StatusOK, "application/xml", resp)
+			return
+		}
+
+		lastErr = err
+		log.Printf("[iptv-proxy] XMLTV fetch failed (attempt %d/%d): %v", attempt, maxRetries, err)
+		if attempt < maxRetries {
+			time.Sleep(retryDelay)
+		}
 	}
 
-	ctx.Data(http.StatusOK, "application/xml", resp)
+	// All retries failed, try to return cached data if available
+	c.xmltvCacheMutex.RLock()
+	if len(c.xmltvCache) > 0 {
+		log.Printf("[iptv-proxy] All XMLTV retries failed, returning stale cache (last updated %v ago)", time.Since(c.xmltvCacheTime))
+		cachedData := c.xmltvCache
+		c.xmltvCacheMutex.RUnlock()
+		ctx.Data(http.StatusOK, "application/xml", cachedData)
+		return
+	}
+	c.xmltvCacheMutex.RUnlock()
+
+	// No cache available, return error
+	log.Printf("[iptv-proxy] XMLTV fetch failed after %d attempts and no cache available: %v", maxRetries, lastErr)
+	ctx.AbortWithError(http.StatusInternalServerError, lastErr) // nolint: errcheck
 }
 
 func (c *Config) xtreamStreamHandler(ctx *gin.Context) {
