@@ -66,12 +66,14 @@ func (c *Config) m3u8ReverseProxy(ctx *gin.Context) {
 func (c *Config) stream(ctx *gin.Context, oriURL *url.URL) {
 	client := &http.Client{}
 
-	forwardRange := ctx.Request.Header.Get("Range") != ""
+	requestRangeHeader := ctx.Request.Header.Get("Range")
+	forwardRange := requestRangeHeader != ""
 	resp, err := c.forwardStreamRequest(ctx, client, oriURL, forwardRange)
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
+	logUpstreamStatus(oriURL, resp, forwardRange && requestRangeHeader != "", "initial")
 
 	if forwardRange && shouldRetryWithoutRange(resp) {
 		log.Printf("[iptv-proxy] Upstream %s returned 206 with zero/invalid payload (Range=%q); retrying without Range header", oriURL.String(), ctx.Request.Header.Get("Range"))
@@ -81,6 +83,7 @@ func (c *Config) stream(ctx *gin.Context, oriURL *url.URL) {
 			ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 			return
 		}
+		logUpstreamStatus(oriURL, resp, false, "retry-no-range")
 	}
 	defer resp.Body.Close()
 
@@ -167,6 +170,32 @@ func shouldRetryWithoutRange(resp *http.Response) bool {
 	}
 
 	return false
+}
+
+func logUpstreamStatus(oriURL *url.URL, resp *http.Response, usedRange bool, attempt string) {
+	if resp == nil {
+		return
+	}
+
+	contentRange := resp.Header.Get("Content-Range")
+	contentLength := resp.ContentLength
+	if contentLength < 0 {
+		if cl := strings.TrimSpace(resp.Header.Get("Content-Length")); cl != "" {
+			if v, err := strconv.ParseInt(cl, 10, 64); err == nil {
+				contentLength = v
+			}
+		}
+	}
+
+	log.Printf(
+		"[iptv-proxy] Upstream %s (%s) status=%d usedRange=%t contentLength=%d contentRange=%q",
+		oriURL.String(),
+		attempt,
+		resp.StatusCode,
+		usedRange,
+		contentLength,
+		contentRange,
+	)
 }
 
 func (c *Config) xtreamStream(ctx *gin.Context, oriURL *url.URL) {
