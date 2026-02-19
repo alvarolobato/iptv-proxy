@@ -82,7 +82,7 @@ type SeriesInfo struct {
 	CategoryID     *FlexInt         `json:"category_id"`
 	Cover          string           `json:"cover"`
 	Director       string           `json:"director"`
-	EpisodeRunTime string           `json:"episode_run_time"`
+	EpisodeRunTime FlexInt          `json:"episode_run_time"`
 	Genre          string           `json:"genre"`
 	LastModified   *Timestamp       `json:"last_modified,omitempty"`
 	Name           string           `json:"name"`
