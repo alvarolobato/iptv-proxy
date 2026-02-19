@@ -153,10 +153,6 @@ func shouldRetryWithoutRange(resp *http.Response) bool {
 		return false
 	}
 
-	if resp.Header.Get("Content-Range") == "" {
-		return true
-	}
-
 	if resp.ContentLength == 0 {
 		return true
 	}
@@ -167,6 +163,7 @@ func shouldRetryWithoutRange(resp *http.Response) bool {
 				return v == 0
 			}
 		}
+		return false
 	}
 
 	return false
