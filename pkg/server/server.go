@@ -20,6 +20,8 @@ package server
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -75,16 +77,18 @@ func NewServer(config *config.ProxyConfig) (*Config, error) {
 		endpointAntiColision = trimmedCustomId
 	}
 
-	return &Config{
+	cfg := &Config{
 		ProxyConfig:          config,
 		playlist:             &p,
 		track:                nil,
 		proxyfiedM3UPath:     defaultProxyfiedM3UPath,
 		endpointAntiColision: endpointAntiColision,
-		metadataCache:        newResponseCache(config.MetadataCacheTTL),
-		xmltvCache:           newResponseCache(config.XMLTVCacheTTL),
-		httpClient:           newUpstreamHTTPClient(),
-	}, nil
+	}
+	cfg.metadataCache = newResponseCache(config.MetadataCacheTTL)
+	cfg.xmltvCache = newResponseCache(config.XMLTVCacheTTL)
+	cfg.httpClient = newUpstreamHTTPClient(cfg)
+
+	return cfg, nil
 }
 
 // Serve the iptv-proxy api
@@ -201,7 +205,7 @@ func (c *Config) replaceURL(uri string, trackIndex int, xtream bool) (string, er
 	return newURL.String(), nil
 }
 
-func newUpstreamHTTPClient() *http.Client {
+func newUpstreamHTTPClient(cfg *Config) *http.Client {
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -218,8 +222,51 @@ func newUpstreamHTTPClient() *http.Client {
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
-	return &http.Client{
+	baseURL, _ := url.Parse(cfg.XtreamBaseURL)
+	client := &http.Client{
 		Transport: transport,
 		Timeout:   0,
 	}
+
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+
+		if baseURL != nil && shouldRewriteRedirectHost(req.URL.Host) {
+			req.URL.Scheme = baseURL.Scheme
+			req.URL.Host = baseURL.Host
+			req.Host = baseURL.Host
+		}
+
+		return nil
+	}
+
+	return client
+}
+
+func shouldRewriteRedirectHost(host string) bool {
+	if host == "" {
+		return false
+	}
+
+	if strings.Contains(host, ":") {
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err == nil {
+		return false
+	}
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		return true
+	}
+
+	return false
 }
