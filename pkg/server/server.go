@@ -20,7 +20,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -60,6 +59,7 @@ type Config struct {
 	metadataCache *responseCache
 	xmltvCache    *responseCache
 	httpClient    *http.Client
+	baseStreamURL *url.URL
 }
 
 // NewServer initialize a new server configuration
@@ -77,12 +77,22 @@ func NewServer(config *config.ProxyConfig) (*Config, error) {
 		endpointAntiColision = trimmedCustomId
 	}
 
+	var baseURL *url.URL
+	if config.XtreamBaseURL != "" {
+		var err error
+		baseURL, err = url.Parse(config.XtreamBaseURL)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	cfg := &Config{
 		ProxyConfig:          config,
 		playlist:             &p,
 		track:                nil,
 		proxyfiedM3UPath:     defaultProxyfiedM3UPath,
 		endpointAntiColision: endpointAntiColision,
+		baseStreamURL:        baseURL,
 	}
 	cfg.metadataCache = newResponseCache(config.MetadataCacheTTL)
 	cfg.xmltvCache = newResponseCache(config.XMLTVCacheTTL)
@@ -222,7 +232,6 @@ func newUpstreamHTTPClient(cfg *Config) *http.Client {
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
-	baseURL, _ := url.Parse(cfg.XtreamBaseURL)
 	client := &http.Client{
 		Transport: transport,
 		Timeout:   0,
@@ -233,10 +242,8 @@ func newUpstreamHTTPClient(cfg *Config) *http.Client {
 			return errors.New("stopped after 10 redirects")
 		}
 
-		if baseURL != nil && shouldRewriteRedirectHost(req.URL.Host) {
-			req.URL.Scheme = baseURL.Scheme
-			req.URL.Host = baseURL.Host
-			req.Host = baseURL.Host
+		if cfg != nil {
+			cfg.routeThroughBaseHost(req, req.URL.Host)
 		}
 
 		return nil
@@ -245,28 +252,19 @@ func newUpstreamHTTPClient(cfg *Config) *http.Client {
 	return client
 }
 
-func shouldRewriteRedirectHost(host string) bool {
-	if host == "" {
-		return false
+func (c *Config) routeThroughBaseHost(req *http.Request, originalHost string) {
+	if c == nil || c.baseStreamURL == nil || req == nil || req.URL == nil {
+		return
 	}
 
-	if strings.Contains(host, ":") {
-		if h, _, err := net.SplitHostPort(host); err == nil {
-			host = h
-		}
+	targetHost := c.baseStreamURL.Host
+	req.URL.Scheme = c.baseStreamURL.Scheme
+	req.URL.Host = targetHost
+
+	trimmedHost := originalHost
+	if trimmedHost == "" {
+		trimmedHost = targetHost
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-	if err == nil {
-		return false
-	}
-
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
-		return true
-	}
-
-	return false
+	req.Host = trimmedHost
 }

@@ -269,12 +269,9 @@ func (c *Config) retryRequestOnDNSError(ctx *gin.Context, originalReq *http.Requ
 	}
 
 	fallbackURL := *failingTarget
-	fallbackURL.Host = baseURL.Host
-	fallbackURL.Scheme = baseURL.Scheme
-
 	fallbackReq := originalReq.Clone(ctx.Request.Context())
 	fallbackReq.URL = &fallbackURL
-	fallbackReq.Host = fallbackURL.Host
+	c.routeThroughBaseHost(fallbackReq, failingTarget.Host)
 
 	return fallbackReq, nil
 }
