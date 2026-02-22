@@ -20,7 +20,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -217,16 +216,12 @@ func (c *Config) replaceURL(uri string, trackIndex int, xtream bool) (string, er
 }
 
 func newUpstreamHTTPClient(cfg *Config) *http.Client {
-	dialer := &net.Dialer{
-		Timeout:   10 * time.Second,
-		KeepAlive: 30 * time.Second,
-	}
-
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return cfg.dialUpstreamWithFallback(ctx, dialer, network, addr)
-		},
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
 		ForceAttemptHTTP2:     false,
 		MaxIdleConns:          256,
 		MaxIdleConnsPerHost:   16,
@@ -241,47 +236,4 @@ func newUpstreamHTTPClient(cfg *Config) *http.Client {
 		Transport: transport,
 		Timeout:   0,
 	}
-}
-
-func (c *Config) dialUpstreamWithFallback(ctx context.Context, dialer *net.Dialer, network, addr string) (net.Conn, error) {
-	if dialer == nil {
-		dialer = &net.Dialer{
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}
-	}
-
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return nil, err
-	}
-
-	lookupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	_, lookupErr := net.DefaultResolver.LookupIPAddr(lookupCtx, host)
-	if lookupErr == nil {
-		return dialer.DialContext(ctx, network, addr)
-	}
-
-	if c.baseStreamURL == nil {
-		return dialer.DialContext(ctx, network, addr)
-	}
-
-	var dnsErr *net.DNSError
-	if !errors.As(lookupErr, &dnsErr) || !dnsErr.IsNotFound {
-		return dialer.DialContext(ctx, network, addr)
-	}
-
-	fallbackHost := c.baseStreamURL.Hostname()
-	if fallbackHost == "" {
-		return dialer.DialContext(ctx, network, addr)
-	}
-	fallbackPort := c.baseStreamURL.Port()
-	if fallbackPort == "" {
-		fallbackPort = port
-	}
-	fallbackAddr := net.JoinHostPort(fallbackHost, fallbackPort)
-	log.Printf("[iptv-proxy] DNS lookup failed for %s; dialing %s instead", host, fallbackAddr)
-
-	return dialer.DialContext(ctx, network, fallbackAddr)
 }

@@ -20,10 +20,12 @@ package server
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -148,7 +150,17 @@ func (c *Config) forwardStreamRequest(ctx *gin.Context, client *http.Client, ori
 		req.Header.Del("If-Range")
 	}
 
-	return client.Do(req)
+	resp, err := client.Do(req)
+	if err == nil {
+		return resp, nil
+	}
+
+	if fallbackReq := c.retryRequestWithBaseHost(ctx, req, err); fallbackReq != nil {
+		log.Printf("[iptv-proxy] DNS lookup failed for %s; retrying against base host %s", req.URL.String(), fallbackReq.URL.Host)
+		return client.Do(fallbackReq)
+	}
+
+	return nil, err
 }
 
 func shouldRetryWithoutRange(resp *http.Response) bool {
@@ -229,6 +241,35 @@ func mergeHttpHeader(dst, src http.Header) {
 			dst.Add(k, v)
 		}
 	}
+}
+
+func (c *Config) retryRequestWithBaseHost(ctx *gin.Context, originalReq *http.Request, err error) *http.Request {
+	if c == nil || c.baseStreamURL == nil || originalReq == nil {
+		return nil
+	}
+
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) {
+		return nil
+	}
+
+	var dnsErr *net.DNSError
+	if !errors.As(urlErr.Err, &dnsErr) || !dnsErr.IsNotFound {
+		return nil
+	}
+
+	fallback := originalReq.Clone(ctx.Request.Context())
+	if fallback.URL == nil {
+		return nil
+	}
+
+	newURL := *fallback.URL
+	newURL.Host = c.baseStreamURL.Host
+	newURL.Scheme = c.baseStreamURL.Scheme
+	fallback.URL = &newURL
+	fallback.Host = c.baseStreamURL.Host
+
+	return fallback
 }
 
 // authRequest handle auth credentials
