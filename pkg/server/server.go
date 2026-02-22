@@ -258,13 +258,21 @@ func (c *Config) routeThroughBaseHost(req *http.Request, originalHost string) {
 	}
 
 	targetHost := c.baseStreamURL.Host
+	if targetHost == "" {
+		return
+	}
+
 	req.URL.Scheme = c.baseStreamURL.Scheme
 	req.URL.Host = targetHost
 
-	trimmedHost := originalHost
-	if trimmedHost == "" {
-		trimmedHost = targetHost
+	if req.Header == nil {
+		req.Header = make(http.Header)
 	}
 
-	req.Host = trimmedHost
+	if originalHost == "" || strings.EqualFold(originalHost, targetHost) {
+		req.Host = targetHost
+	} else {
+		req.Host = targetHost
+		req.Header.Set("X-Original-Host", originalHost)
+	}
 }

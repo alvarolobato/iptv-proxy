@@ -244,7 +244,7 @@ func mergeHttpHeader(dst, src http.Header) {
 }
 
 func (c *Config) retryRequestOnDNSError(ctx *gin.Context, originalReq *http.Request, err error) (*http.Request, error) {
-	if c == nil || c.XtreamBaseURL == "" {
+	if c == nil || c.baseStreamURL == nil {
 		return nil, nil
 	}
 
