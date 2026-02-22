@@ -58,6 +58,8 @@ services:
       XTREAM_BASE_URL: "http://....com" # change for iptv provider domain
       USER: my_custom_username  # change for custom username
       PASSWORD: my_custom_password  # change for custom password
+      METADATA_CACHE_TTL: 5m # cache heavy Xtream metadata (get_series, get_series_info)
+      XMLTV_CACHE_TTL: 30m   # cache xmltv.php responses to avoid repeated guide downloads
 ```
 
 ## 5. Run it

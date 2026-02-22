@@ -20,6 +20,7 @@ package config
 
 import (
 	"net/url"
+	"time"
 )
 
 // CredentialString represents an iptv-proxy credential.
@@ -49,6 +50,8 @@ type ProxyConfig struct {
 	XtreamBaseURL        string
 	XtreamGenerateApiGet bool
 	M3UCacheExpiration   int
+	MetadataCacheTTL     time.Duration
+	XMLTVCacheTTL        time.Duration
 	M3UFileName          string
 	CustomEndpoint       string
 	CustomId             string

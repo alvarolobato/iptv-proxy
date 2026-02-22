@@ -64,7 +64,10 @@ func (c *Config) m3u8ReverseProxy(ctx *gin.Context) {
 }
 
 func (c *Config) stream(ctx *gin.Context, oriURL *url.URL) {
-	client := &http.Client{}
+	client := c.httpClient
+	if client == nil {
+		client = http.DefaultClient
+	}
 
 	requestRangeHeader := ctx.Request.Header.Get("Range")
 	forwardRange := requestRangeHeader != ""

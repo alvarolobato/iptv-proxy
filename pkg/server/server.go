@@ -22,11 +22,14 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/jamesnetherton/m3u"
@@ -51,6 +54,10 @@ type Config struct {
 	proxyfiedM3UPath string
 
 	endpointAntiColision string
+
+	metadataCache *responseCache
+	xmltvCache    *responseCache
+	httpClient    *http.Client
 }
 
 // NewServer initialize a new server configuration
@@ -69,11 +76,14 @@ func NewServer(config *config.ProxyConfig) (*Config, error) {
 	}
 
 	return &Config{
-		config,
-		&p,
-		nil,
-		defaultProxyfiedM3UPath,
-		endpointAntiColision,
+		ProxyConfig:          config,
+		playlist:             &p,
+		track:                nil,
+		proxyfiedM3UPath:     defaultProxyfiedM3UPath,
+		endpointAntiColision: endpointAntiColision,
+		metadataCache:        newResponseCache(config.MetadataCacheTTL),
+		xmltvCache:           newResponseCache(config.XMLTVCacheTTL),
+		httpClient:           newUpstreamHTTPClient(),
 	}, nil
 }
 
@@ -189,4 +199,27 @@ func (c *Config) replaceURL(uri string, trackIndex int, xtream bool) (string, er
 	}
 
 	return newURL.String(), nil
+}
+
+func newUpstreamHTTPClient() *http.Client {
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     false,
+		MaxIdleConns:          256,
+		MaxIdleConnsPerHost:   16,
+		MaxConnsPerHost:       64,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	return &http.Client{
+		Transport: transport,
+		Timeout:   0,
+	}
 }

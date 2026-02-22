@@ -19,6 +19,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -27,6 +28,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -346,6 +348,15 @@ func (c *Config) xtreamPlayerAPI(ctx *gin.Context, q url.Values) {
 		action = q["action"][0]
 	}
 
+	cacheKey, cacheable := c.metadataCacheKey(action, q)
+	if cacheable {
+		if entry, ok := c.metadataCache.Get(cacheKey); ok {
+			log.Printf("[iptv-proxy] %v | %s |Action\t%s (cache hit)\n", time.Now().Format("2006/01/02 - 15:04:05"), ctx.ClientIP(), action)
+			ctx.Data(http.StatusOK, entry.contentType, entry.payload)
+			return
+		}
+	}
+
 	client, err := xtreamapi.New(c.XtreamUser.String(), c.XtreamPassword.String(), c.XtreamBaseURL, ctx.Request.UserAgent())
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
@@ -358,17 +369,28 @@ func (c *Config) xtreamPlayerAPI(ctx *gin.Context, q url.Values) {
 		return
 	}
 
-	log.Printf("[iptv-proxy] %v | %s |Action\t%s\n", time.Now().Format("2006/01/02 - 15:04:05"), ctx.ClientIP(), action)
-
+	payload, err := json.Marshal(resp)
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
 
-	ctx.JSON(http.StatusOK, resp)
+	log.Printf("[iptv-proxy] %v | %s |Action\t%s\n", time.Now().Format("2006/01/02 - 15:04:05"), ctx.ClientIP(), action)
+
+	if cacheable {
+		c.metadataCache.Set(cacheKey, payload, "application/json")
+	}
+
+	ctx.Data(http.StatusOK, "application/json", payload)
 }
 
 func (c *Config) xtreamXMLTV(ctx *gin.Context) {
+	if entry, ok := c.xmltvCache.Get(ctx.Request.URL.RawQuery); ok {
+		log.Printf("[iptv-proxy] %v | %s | xmltv.php cache hit\n", time.Now().Format("2006/01/02 - 15:04:05"), ctx.ClientIP())
+		ctx.Data(http.StatusOK, entry.contentType, entry.payload)
+		return
+	}
+
 	client, err := xtreamapi.New(c.XtreamUser.String(), c.XtreamPassword.String(), c.XtreamBaseURL, ctx.Request.UserAgent())
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
@@ -381,6 +403,7 @@ func (c *Config) xtreamXMLTV(ctx *gin.Context) {
 		return
 	}
 
+	c.xmltvCache.Set(ctx.Request.URL.RawQuery, resp, "application/xml")
 	ctx.Data(http.StatusOK, "application/xml", resp)
 }
 
@@ -518,6 +541,52 @@ func (c *Config) xtreamHlsrStream(ctx *gin.Context) {
 	}
 
 	c.xtreamStream(ctx, req)
+}
+
+func (c *Config) metadataCacheKey(action string, q url.Values) (string, bool) {
+	if c == nil || c.metadataCache == nil || c.MetadataCacheTTL <= 0 {
+		return "", false
+	}
+
+	switch action {
+	case "get_series", "get_series_info":
+		return action + "|" + canonicalizeQuery(q), true
+	default:
+		return "", false
+	}
+}
+
+func canonicalizeQuery(q url.Values) string {
+	if len(q) == 0 {
+		return ""
+	}
+
+	keys := make([]string, 0, len(q))
+	for k := range q {
+		if k == "username" || k == "password" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var b strings.Builder
+	first := true
+	for _, k := range keys {
+		values := append([]string(nil), q[k]...)
+		sort.Strings(values)
+		for _, v := range values {
+			if !first {
+				b.WriteByte('&')
+			}
+			first = false
+			b.WriteString(k)
+			b.WriteByte('=')
+			b.WriteString(v)
+		}
+	}
+
+	return b.String()
 }
 
 func getHlsRedirectURL(channel string) (*url.URL, error) {
