@@ -20,7 +20,6 @@ package server
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"log"
 	"net"
