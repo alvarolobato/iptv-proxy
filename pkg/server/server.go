@@ -20,6 +20,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -216,12 +217,16 @@ func (c *Config) replaceURL(uri string, trackIndex int, xtream bool) (string, er
 }
 
 func newUpstreamHTTPClient(cfg *Config) *http.Client {
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return cfg.dialUpstreamWithFallback(ctx, dialer, network, addr)
+		},
 		ForceAttemptHTTP2:     false,
 		MaxIdleConns:          256,
 		MaxIdleConnsPerHost:   16,
@@ -232,47 +237,51 @@ func newUpstreamHTTPClient(cfg *Config) *http.Client {
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
-	client := &http.Client{
+	return &http.Client{
 		Transport: transport,
 		Timeout:   0,
 	}
-
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 10 {
-			return errors.New("stopped after 10 redirects")
-		}
-
-		if cfg != nil {
-			cfg.routeThroughBaseHost(req, req.URL.Host)
-		}
-
-		return nil
-	}
-
-	return client
 }
 
-func (c *Config) routeThroughBaseHost(req *http.Request, originalHost string) {
-	if c == nil || c.baseStreamURL == nil || req == nil || req.URL == nil {
-		return
+func (c *Config) dialUpstreamWithFallback(ctx context.Context, dialer *net.Dialer, network, addr string) (net.Conn, error) {
+	if dialer == nil {
+		dialer = &net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}
 	}
 
-	targetHost := c.baseStreamURL.Host
-	if targetHost == "" {
-		return
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
 	}
 
-	req.URL.Scheme = c.baseStreamURL.Scheme
-	req.URL.Host = targetHost
-
-	if req.Header == nil {
-		req.Header = make(http.Header)
+	lookupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_, lookupErr := net.DefaultResolver.LookupIPAddr(lookupCtx, host)
+	if lookupErr == nil {
+		return dialer.DialContext(ctx, network, addr)
 	}
 
-	if originalHost == "" || strings.EqualFold(originalHost, targetHost) {
-		req.Host = targetHost
-	} else {
-		req.Host = targetHost
-		req.Header.Set("X-Original-Host", originalHost)
+	if c.baseStreamURL == nil {
+		return dialer.DialContext(ctx, network, addr)
 	}
+
+	var dnsErr *net.DNSError
+	if !errors.As(lookupErr, &dnsErr) || !dnsErr.IsNotFound {
+		return dialer.DialContext(ctx, network, addr)
+	}
+
+	fallbackHost := c.baseStreamURL.Hostname()
+	if fallbackHost == "" {
+		return dialer.DialContext(ctx, network, addr)
+	}
+	fallbackPort := c.baseStreamURL.Port()
+	if fallbackPort == "" {
+		fallbackPort = port
+	}
+	fallbackAddr := net.JoinHostPort(fallbackHost, fallbackPort)
+	log.Printf("[iptv-proxy] DNS lookup failed for %s; dialing %s instead", host, fallbackAddr)
+
+	return dialer.DialContext(ctx, network, fallbackAddr)
 }
