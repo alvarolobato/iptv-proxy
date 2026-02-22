@@ -258,11 +258,6 @@ func (c *Config) retryRequestOnDNSError(ctx *gin.Context, originalReq *http.Requ
 		return nil, nil
 	}
 
-	baseURL, err := url.Parse(c.XtreamBaseURL)
-	if err != nil {
-		return nil, err
-	}
-
 	failingTarget, err := url.Parse(urlErr.URL)
 	if err != nil {
 		return nil, err
