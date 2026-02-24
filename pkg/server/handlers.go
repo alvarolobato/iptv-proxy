@@ -28,7 +28,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -102,11 +104,18 @@ func (c *Config) stream(ctx *gin.Context, oriURL *url.URL) {
 		}
 		log.Printf("[iptv-proxy] Upstream %s returned status %d; headers=%v", oriURL.String(), resp.StatusCode, hdrs)
 
-		// read up to 8KB of the body for logging
-		lr := io.LimitReader(resp.Body, 8*1024)
+		// read up to 32KB of the body for logging/capture
+		lr := io.LimitReader(resp.Body, 32*1024)
 		b, _ := ioutil.ReadAll(lr)
 		if len(b) > 0 {
 			log.Printf("[iptv-proxy] Upstream error body (truncated): %s", string(b))
+			if resp.StatusCode == 509 {
+				if capturePath, err := captureErrorBody(resp.StatusCode, b); err != nil {
+					log.Printf("[iptv-proxy] Unable to persist 509 body: %v", err)
+				} else {
+					log.Printf("[iptv-proxy] Persisted 509 body to %s", capturePath)
+				}
+			}
 		}
 		// Reset body reader so we can still stream the full response to the client.
 		// Note: we can't rewind the original resp.Body. Instead, for error statuses
@@ -311,4 +320,19 @@ func (c *Config) appAuthenticate(ctx *gin.Context) {
 	}
 
 	ctx.Request.Body = ioutil.NopCloser(bytes.NewReader(contents))
+}
+
+func captureErrorBody(status int, body []byte) (string, error) {
+	if len(body) == 0 {
+		return "", fmt.Errorf("empty error body")
+	}
+
+	filename := fmt.Sprintf("iptv-proxy-%d-%d.body", status, time.Now().UnixNano())
+	path := filepath.Join(os.TempDir(), filename)
+
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		return "", err
+	}
+
+	return path, nil
 }
