@@ -2,7 +2,20 @@
 
 This document compares the branches brought in from forks and their corresponding PRs into `master`. It summarizes what each PR introduces, where they overlap, and which branches bring in the same or similar commits/features.
 
-**PRs created (all base: `master`):**
+**Implementation plan:** See [docs/MERGE_PLAN.md](MERGE_PLAN.md) for the consolidated merge strategy. New feature PRs (no CI) are below.
+
+**New PRs (consolidated features, base: `master`):**
+
+| PR | Branch | Title |
+|----|--------|--------|
+| [#10](https://github.com/alvarolobato/iptv-proxy/pull/10) | pr/1-xtream-struct-vod-epg-hls | Xtream struct robustness, HLS fix, VOD/EPG fixes, startup logs |
+| [#11](https://github.com/alvarolobato/iptv-proxy/pull/11) | pr/2-m3u-patch-parsing | M3U patch parsing (tvg-name, tvg-logo) |
+| [#12](https://github.com/alvarolobato/iptv-proxy/pull/12) | pr/3-regex-filter-replacement-resolution | Regex filter, replacement, resolution groups for M3U |
+| [#13](https://github.com/alvarolobato/iptv-proxy/pull/13) | pr/4-xmltv-cache-range | XMLTV caching with retry and Range header support |
+| [#15](https://github.com/alvarolobato/iptv-proxy/pull/15) | pr/5-debug-advanced-m3u4u | Debug/cache/advanced-parsing flags (config only) |
+| [#14](https://github.com/alvarolobato/iptv-proxy/pull/14) | pr/6-get-php-play-fix | /play/user/password/:id route for client compatibility |
+
+**Original fork-branch PRs (reference only; superseded by the above):**
 
 | PR | Branch | Title |
 |----|--------|--------|
@@ -123,3 +136,21 @@ This document compares the branches brought in from forks and their correspondin
 7. **Revert** fork-specific bits (module path, author changes, fork CI) in every merged branch before merging to master.
 
 This comparison and the per-PR improvement lists in each PR body should be enough to merge selectively and avoid duplicate or conflicting changes.
+
+---
+
+## 5. What we are NOT bringing in (and why)
+
+| Item | Reason |
+|------|--------|
+| **Any CI/CD** | User requested no CI from any branch. |
+| **Module path changes** | Keep upstream path (e.g. `github.com/pierre-emmanuelJ/iptv-proxy`). |
+| **Author/attribution change** (pierre → ridgarou) | Keep original attribution. |
+| **README overhaul / docker-compose template** (chernandezweb) | Only code features brought in; docs separate. |
+| **Trivial "." commits** (chernandezweb) | Not brought in. |
+| **Duplicate struct/VOD/EPG/startup** (jtdevops, michbeck100) | Covered by PR #10 (Yagoor). |
+| **Duplicate regex-only** (Gibby_regex-filters, michbeck100) | PR #12 uses ridgarou’s full implementation. |
+| **Full response-saving to files** (jtdevops) | PR #15 adds config/flags only; wiring deferred. |
+| **m3u4u.com URL option** (jtdevops, michbeck100) | Deferred; can be a follow-up. |
+| **509 response body persistence** (chernandezweb) | Not in PR #13. |
+| **error_utils / error details** (jtdevops) | Deferred; would require pkg/utils and handler changes. |
