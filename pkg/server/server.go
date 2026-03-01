@@ -51,6 +51,8 @@ type Config struct {
 	proxyfiedM3UPath string
 
 	endpointAntiColision string
+
+	xmltvCache *responseCache
 }
 
 // NewServer initialize a new server configuration
@@ -68,13 +70,15 @@ func NewServer(config *config.ProxyConfig) (*Config, error) {
                 endpointAntiColision = trimmedCustomId
         }
 
-	return &Config{
-		config,
-		&p,
-		nil,
-		defaultProxyfiedM3UPath,
-		endpointAntiColision,
-	}, nil
+	cfg := &Config{
+		ProxyConfig:          config,
+		playlist:             &p,
+		track:                nil,
+		proxyfiedM3UPath:     defaultProxyfiedM3UPath,
+		endpointAntiColision: endpointAntiColision,
+	}
+	cfg.xmltvCache = newResponseCache(config.XMLTVCacheTTL)
+	return cfg, nil
 }
 
 // Serve the iptv-proxy api

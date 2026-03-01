@@ -72,6 +72,9 @@ func (c *Config) stream(ctx *gin.Context, oriURL *url.URL) {
 	}
 
 	mergeHttpHeader(req.Header, ctx.Request.Header)
+	if rangeH := ctx.Request.Header.Get("Range"); rangeH != "" {
+		req.Header.Set("Range", rangeH)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
