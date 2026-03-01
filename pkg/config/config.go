@@ -22,6 +22,12 @@ import (
 	"net/url"
 )
 
+// DebugLoggingEnabled enables verbose debug logging when true.
+var DebugLoggingEnabled bool
+
+// CacheFolder is the directory for saving provider/client responses (when non-empty). Used by optional debug features.
+var CacheFolder string
+
 // CredentialString represents an iptv-proxy credential.
 type CredentialString string
 
@@ -56,4 +62,6 @@ type ProxyConfig struct {
 	AdvertisedPort       int
 	HTTPS                bool
 	User, Password       CredentialString
+	// UseXtreamAdvancedParsing uses alternate parsing for some Xtream requests to preserve raw provider response (default false).
+	UseXtreamAdvancedParsing bool
 }

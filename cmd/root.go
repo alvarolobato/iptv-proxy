@@ -41,6 +41,7 @@ var rootCmd = &cobra.Command{
 	Use:   "iptv-proxy",
 	Short: "Reverse proxy on iptv m3u file and xtream codes server api",
 	Run: func(cmd *cobra.Command, args []string) {
+		log.Printf("[iptv-proxy] Server is starting...")
 		m3uURL := viper.GetString("m3u-url")
 		remoteHostURL, err := url.Parse(m3uURL)
 		if err != nil {
@@ -68,6 +69,12 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
+		config.DebugLoggingEnabled = viper.GetBool("debug-logging")
+		config.CacheFolder = viper.GetString("cache-folder")
+		if config.CacheFolder != "" && !strings.HasSuffix(config.CacheFolder, "/") {
+			config.CacheFolder += "/"
+		}
+
 		conf := &config.ProxyConfig{
 			HostConfig: &config.HostConfiguration{
 				Hostname: viper.GetString("hostname"),
@@ -84,8 +91,9 @@ var rootCmd = &cobra.Command{
 			HTTPS:                viper.GetBool("https"),
 			M3UFileName:          viper.GetString("m3u-file-name"),
 			CustomEndpoint:       viper.GetString("custom-endpoint"),
-			CustomId:             viper.GetString("custom-id"),
-			XtreamGenerateApiGet: viper.GetBool("xtream-api-get"),
+			CustomId:                  viper.GetString("custom-id"),
+			XtreamGenerateApiGet:      viper.GetBool("xtream-api-get"),
+			UseXtreamAdvancedParsing:  viper.GetBool("use-xtream-advanced-parsing"),
 		}
 
 		if conf.AdvertisedPort == 0 {
@@ -134,6 +142,9 @@ func init() {
 	rootCmd.Flags().String("xtream-base-url", "", "Xtream-code base url e.g(http://expample.tv:8080)")
 	rootCmd.Flags().Int("m3u-cache-expiration", 1, "M3U cache expiration in hour")
 	rootCmd.Flags().BoolP("xtream-api-get", "", false, "Generate get.php from xtream API instead of get.php original endpoint")
+	rootCmd.Flags().Bool("debug-logging", false, "Enable debug logging")
+	rootCmd.Flags().String("cache-folder", "", "Folder to save provider/client responses for debugging (optional)")
+	rootCmd.Flags().Bool("use-xtream-advanced-parsing", false, "Use alternate Xtream parsing to preserve raw provider response")
 
 	if e := viper.BindPFlags(rootCmd.Flags()); e != nil {
 		log.Fatal("error binding PFlags to viper")
