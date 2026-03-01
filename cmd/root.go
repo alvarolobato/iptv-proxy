@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/pierre-emmanuelJ/iptv-proxy/pkg/config"
 
@@ -78,6 +79,7 @@ var rootCmd = &cobra.Command{
 			XtreamPassword:       config.CredentialString(xtreamPassword),
 			XtreamBaseURL:        xtreamBaseURL,
 			M3UCacheExpiration:   viper.GetInt("m3u-cache-expiration"),
+			XMLTVCacheTTL:        parseDuration(viper.GetString("xmltv-cache-ttl")),
 			User:                 config.CredentialString(viper.GetString("user")),
 			Password:             config.CredentialString(viper.GetString("password")),
 			AdvertisedPort:       viper.GetInt("advertised-port"),
@@ -133,11 +135,23 @@ func init() {
 	rootCmd.Flags().String("xtream-password", "", "Xtream-code password login")
 	rootCmd.Flags().String("xtream-base-url", "", "Xtream-code base url e.g(http://expample.tv:8080)")
 	rootCmd.Flags().Int("m3u-cache-expiration", 1, "M3U cache expiration in hour")
+	rootCmd.Flags().String("xmltv-cache-ttl", "", "XMLTV cache TTL (e.g. 1h, 30m); empty = no cache")
 	rootCmd.Flags().BoolP("xtream-api-get", "", false, "Generate get.php from xtream API instead of get.php original endpoint")
 
 	if e := viper.BindPFlags(rootCmd.Flags()); e != nil {
 		log.Fatal("error binding PFlags to viper")
 	}
+}
+
+func parseDuration(s string) time.Duration {
+	if s == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0
+	}
+	return d
 }
 
 // initConfig reads in config file and ENV variables if set.
