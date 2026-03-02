@@ -1,7 +1,5 @@
 # Claude / AI context
 
-For full application context, architecture, and session learnings (fork consolidation, PRs, conventions), read:
+For application context, layout, and conventions, read **[AGENTS.md](AGENTS.md)**.
 
-**[AGENTS.md](AGENTS.md)**
-
-It contains repository layout, what the app does, architecture summary, the list of consolidated PRs and what was not brought in, conventions, and where to look for what. Use it as the single source of agent context for iptv-proxy.
+For user-facing configuration and features, see **README.md** and the **docs/** folder (configuration.md, replacements.md, traefik.md).
