@@ -264,13 +264,6 @@ func (c *Config) xtreamPlayerAPI(ctx *gin.Context, q url.Values) {
 		return
 	}
 
-	log.Printf("[iptv-proxy] %v | %s |Action\t%s\n", time.Now().Format("2006/01/02 - 15:04:05"), ctx.ClientIP(), action)
-
-	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-		return
-	}
-
 	ctx.JSON(http.StatusOK, resp)
 }
 
@@ -407,28 +400,34 @@ func (c *Config) xtreamHlsStream(ctx *gin.Context) {
 	}
 	channel := s[0]
 
-	url, err := getHlsRedirectURL(channel)
+	hlsURL, err := getHlsRedirectURL(channel)
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
 
-	req, err := url.Parse(
-		fmt.Sprintf(
-			"%s://%s/hls/%s/%s",
-			url.Scheme,
-			url.Host,
-			ctx.Param("token"),
-			ctx.Param("chunk"),
-		),
-	)
-
-	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+	token, ok := ctx.GetQuery("token")
+	if !ok || token == "" {
+		ctx.AbortWithError(http.StatusBadRequest, errors.New("missing token query parameter")) // nolint: errcheck
 		return
+	}
+
+	req := &url.URL{
+		Scheme:   hlsURL.Scheme,
+		Host:     hlsURL.Host,
+		Path:     "/hls/" + chunk,
+		RawQuery: url.Values{"token": {token}}.Encode(),
 	}
 
 	c.xtreamStream(ctx, req)
+}
+
+// xtreamHlsStreamLegacy handles legacy path /hls/:token/:chunk by forwarding token as query param.
+func (c *Config) xtreamHlsStreamLegacy(ctx *gin.Context) {
+	q := ctx.Request.URL.Query()
+	q.Set("token", ctx.Param("token"))
+	ctx.Request.URL.RawQuery = q.Encode()
+	c.xtreamHlsStream(ctx)
 }
 
 func (c *Config) xtreamHlsrStream(ctx *gin.Context) {

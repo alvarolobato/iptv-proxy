@@ -64,7 +64,9 @@ func (c *Config) xtreamRoutes(r *gin.RouterGroup) {
 	r.GET(fmt.Sprintf("/movie/%s/%s/:id", c.User, c.Password), c.xtreamStreamMovie)
 	r.GET(fmt.Sprintf("/series/%s/%s/:id", c.User, c.Password), c.xtreamStreamSeries)
 	r.GET(fmt.Sprintf("/hlsr/:token/%s/%s/:channel/:hash/:chunk", c.User, c.Password), c.xtreamHlsrStream)
-	r.GET("/hls/:token/:chunk", c.xtreamHlsStream)
+	r.GET("/hls/:chunk", c.xtreamHlsStream)
+	// Legacy: support old path /hls/:token/:chunk by forwarding token as query param
+	r.GET("/hls/:token/:chunk", c.xtreamHlsStreamLegacy)
 	r.GET("/play/:token/:type", c.xtreamStreamPlay)
 	r.GET(fmt.Sprintf("/play/%s/%s/:id", c.User, c.Password), c.xtreamStreamHandler)
 }
