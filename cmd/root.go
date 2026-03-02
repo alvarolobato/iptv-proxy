@@ -23,6 +23,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -42,9 +43,7 @@ var rootCmd = &cobra.Command{
 	Use:   "iptv-proxy",
 	Short: "Reverse proxy on iptv m3u file and xtream codes server api",
 	Run: func(cmd *cobra.Command, args []string) {
-
-		log.Printf("[iptv-proxy] Server is starting...")
-
+		log.Printf("[iptv-proxy] INFO: Server is starting...")
 		m3uURL := viper.GetString("m3u-url")
 		remoteHostURL, err := url.Parse(m3uURL)
 		if err != nil {
@@ -72,30 +71,38 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
+		cacheFolder := viper.GetString("cache-folder")
+		if cacheFolder != "" {
+			cacheFolder = filepath.Clean(cacheFolder)
+		}
+
 		conf := &config.ProxyConfig{
 			HostConfig: &config.HostConfiguration{
 				Hostname: viper.GetString("hostname"),
 				Port:     viper.GetInt("port"),
 			},
-			RemoteURL:            remoteHostURL,
-			XtreamUser:           config.CredentialString(xtreamUser),
-			XtreamPassword:       config.CredentialString(xtreamPassword),
-			XtreamBaseURL:        xtreamBaseURL,
-			M3UCacheExpiration:   viper.GetInt("m3u-cache-expiration"),
-			XMLTVCacheTTL:        parseDuration(viper.GetString("xmltv-cache-ttl")),
-			XMLTVCacheMaxEntries: viper.GetInt("xmltv-cache-max-entries"),
-			User:                 config.CredentialString(viper.GetString("user")),
-			Password:             config.CredentialString(viper.GetString("password")),
-			AdvertisedPort:       viper.GetInt("advertised-port"),
-			HTTPS:                viper.GetBool("https"),
-			M3UFileName:          viper.GetString("m3u-file-name"),
-			CustomEndpoint:       viper.GetString("custom-endpoint"),
-			CustomId:             viper.GetString("custom-id"),
-			XtreamGenerateApiGet: viper.GetBool("xtream-api-get"),
-			GroupRegex:           viper.GetString("group-regex"),
-			ChannelRegex:         viper.GetString("channel-regex"),
-			JSONFolder:           viper.GetString("json-folder"),
-			DivideByRes:          viper.GetBool("divide-by-res"),
+			RemoteURL:                 remoteHostURL,
+			XtreamUser:                config.CredentialString(xtreamUser),
+			XtreamPassword:            config.CredentialString(xtreamPassword),
+			XtreamBaseURL:             xtreamBaseURL,
+			M3UCacheExpiration:        viper.GetInt("m3u-cache-expiration"),
+			XMLTVCacheTTL:             parseDuration(viper.GetString("xmltv-cache-ttl")),
+			XMLTVCacheMaxEntries:      viper.GetInt("xmltv-cache-max-entries"),
+			User:                      config.CredentialString(viper.GetString("user")),
+			Password:                  config.CredentialString(viper.GetString("password")),
+			AdvertisedPort:            viper.GetInt("advertised-port"),
+			HTTPS:                     viper.GetBool("https"),
+			M3UFileName:               viper.GetString("m3u-file-name"),
+			CustomEndpoint:            viper.GetString("custom-endpoint"),
+			CustomId:                  viper.GetString("custom-id"),
+			XtreamGenerateApiGet:      viper.GetBool("xtream-api-get"),
+			GroupRegex:                viper.GetString("group-regex"),
+			ChannelRegex:              viper.GetString("channel-regex"),
+			JSONFolder:                viper.GetString("json-folder"),
+			DivideByRes:               viper.GetBool("divide-by-res"),
+			UseXtreamAdvancedParsing:   viper.GetBool("use-xtream-advanced-parsing"),
+			DebugLoggingEnabled:       viper.GetBool("debug-logging"),
+			CacheFolder:               cacheFolder,
 		}
 
 		if conf.AdvertisedPort == 0 {
@@ -150,6 +157,9 @@ func init() {
 	rootCmd.Flags().String("channel-regex", "", "Include only M3U tracks whose channel name matches this regex (empty = all)")
 	rootCmd.Flags().String("json-folder", "", "Folder containing replacements.json for name/group replacement rules")
 	rootCmd.Flags().Bool("divide-by-res", false, "Divide groups by resolution (FHD/HD/SD)")
+	rootCmd.Flags().Bool("debug-logging", false, "Enable debug logging")
+	rootCmd.Flags().String("cache-folder", "", "Folder to save provider/client responses for debugging (optional)")
+	rootCmd.Flags().Bool("use-xtream-advanced-parsing", false, "Use alternate Xtream parsing to preserve raw provider response")
 
 	if e := viper.BindPFlags(rootCmd.Flags()); e != nil {
 		log.Fatal("error binding PFlags to viper")

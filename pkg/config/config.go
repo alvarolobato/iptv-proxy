@@ -64,4 +64,10 @@ type ProxyConfig struct {
 	ChannelRegex string // include only tracks whose name matches (empty = all)
 	JSONFolder   string // folder containing replacements.json for name/group replacement
 	DivideByRes  bool   // divide groups by resolution (FHD/HD/SD)
+	// UseXtreamAdvancedParsing uses alternate parsing for some Xtream requests to preserve raw provider response (default false).
+	UseXtreamAdvancedParsing bool
+	// DebugLoggingEnabled enables verbose debug logging when true.
+	DebugLoggingEnabled bool
+	// CacheFolder is the directory for saving provider/client responses (when non-empty). Use filepath.Join with this; no trailing separator.
+	CacheFolder string
 }
