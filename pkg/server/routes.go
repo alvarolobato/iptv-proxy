@@ -68,6 +68,7 @@ func (c *Config) xtreamRoutes(r *gin.RouterGroup) {
 	// Legacy: support old path /hls/:token/:chunk by forwarding token as query param
 	r.GET("/hls/:token/:chunk", c.xtreamHlsStreamLegacy)
 	r.GET("/play/:token/:type", c.xtreamStreamPlay)
+	r.GET(fmt.Sprintf("/play/%s/%s/:id", c.User, c.Password), c.xtreamStreamHandler)
 }
 
 func (c *Config) m3uRoutes(r *gin.RouterGroup) {
