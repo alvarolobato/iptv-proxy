@@ -10,7 +10,7 @@ This file gives AI agents and future sessions application context and where to f
   1. **M3U playlists** — Rewrites track URLs to point at the proxy; serves a single proxified M3U and proxies each track stream. Supports filtering (group/channel regex), replacements (regex rewrite of names and groups), and optional resolution grouping (FHD/HD/SD).
   2. **Xtream Codes client API** — Proxies the Xtream API (live, VOD, series, EPG/xmltv.php, get.php, player_api.php, HLS, etc.) and rewrites credentials and base URL so clients use the proxy instead of the provider.
 
-- **Tech:** Go, Cobra/Viper for CLI and config, Gin for HTTP, vendored deps (e.g. `github.com/tellytv/go.xtream-codes`, `github.com/jamesnetherton/m3u`).
+- **Tech:** Go, Cobra/Viper for CLI and config, Gin for HTTP, vendored deps (e.g. `github.com/tellytv/go.xtream-codes`, `github.com/jamesnetherton/m3u`). Module path: `github.com/alvarolobato/iptv-proxy`.
 
 ---
 

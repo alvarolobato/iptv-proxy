@@ -64,9 +64,8 @@ func (c *Config) xtreamRoutes(r *gin.RouterGroup) {
 	r.GET(fmt.Sprintf("/movie/%s/%s/:id", c.User, c.Password), c.xtreamStreamMovie)
 	r.GET(fmt.Sprintf("/series/%s/%s/:id", c.User, c.Password), c.xtreamStreamSeries)
 	r.GET(fmt.Sprintf("/hlsr/:token/%s/%s/:channel/:hash/:chunk", c.User, c.Password), c.xtreamHlsrStream)
-	// Register more specific route first: Gin rejects /hls/:token/:chunk if /hls/:chunk is already registered
-	r.GET("/hls/:token/:chunk", c.xtreamHlsStreamLegacy)
-	r.GET("/hls/:chunk", c.xtreamHlsStream)
+	// Single catch-all: Gin cannot have both /hls/:chunk and /hls/:token/:chunk (conflicting wildcards)
+	r.GET("/hls/*path", c.xtreamHlsDispatch)
 	r.GET("/play/:token/:type", c.xtreamStreamPlay)
 	r.GET(fmt.Sprintf("/play/%s/%s/:id", c.User, c.Password), c.xtreamStreamHandler)
 }
