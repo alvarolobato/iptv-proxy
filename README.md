@@ -127,6 +127,10 @@ New xtream credentials
  ```
 
 
+## Optional features and configuration
+
+Extra options (M3U filter/replacement, XMLTV cache, debug flags, etc.) and detailed behaviour are documented in **[docs/FEATURES.md](docs/FEATURES.md)**.
+
 ## Installation
 
 Download lasted [release](https://github.com/pierre-emmanuelJ/iptv-proxy/releases)
