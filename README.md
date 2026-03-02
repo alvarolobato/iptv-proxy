@@ -1,266 +1,158 @@
-# Iptv Proxy
+# IPTV-Proxy
 
-[![Actions Status](https://github.com/pierre-emmanuelJ/iptv-proxy/workflows/CI/badge.svg)](https://github.com/pierre-emmanuelJ/iptv-proxy/actions?query=workflow%3ACI)
+[![CI](https://github.com/alvarolobato/iptv-proxy/workflows/CI/badge.svg)](https://github.com/alvarolobato/iptv-proxy/actions?query=workflow%3ACI)
 
-## Description
+A reverse proxy for IPTV M3U playlists and **Xtream Codes** API. Expose your provider’s streams under your own URLs, with optional filtering, replacements, and HTTPS.
 
-Iptv-Proxy is a project to proxyfie an m3u file
-and to proxyfie an Xtream iptv service (client API).
+---
 
-### M3U and M3U8
+## What is IPTV-Proxy?
 
-M3U service convert an iptv m3u file into a web proxy server.
+IPTV-Proxy sits between your IPTV provider and your apps (players, Plex, Jellyfin, etc.). It fetches the provider’s M3U playlist or Xtream API and **rewrites all URLs** to point to the proxy. Viewers then connect to your server instead of the provider, so you can:
 
-It's transform all the original tracks to an new url pointing on the proxy.
+- Use a single public URL and change providers behind the scenes
+- Add basic auth to protect playlists and streams
+- Put the proxy behind HTTPS (e.g. with Traefik)
+- Filter channels by name or group (regex) and rewrite names/groups via a JSON file
+- Cache M3U and XMLTV (EPG) to reduce load on the provider
 
+It supports **M3U/M3U8** (plain playlists) and full **Xtream Codes** (live, VOD, series, EPG). No database required; configuration is flags, config file, or environment variables.
 
-### Xtream code client api
+---
 
-proxy on Xtream code (client API)
+## What can you do with it?
 
-support live, vod, series and full epg :rocket:
+| Use case | What IPTV-Proxy does |
+|----------|----------------------|
+| **M3U proxy** | Fetches a remote or local M3U, rewrites track URLs to your host/port, serves the playlist at e.g. `http://yourserver:8080/iptv.m3u` with optional auth. |
+| **Xtream proxy** | Proxies the Xtream API (live, VOD, series, EPG). You give clients your URL and proxy credentials; they use the same apps as with a normal Xtream server. |
+| **Filter channels** | Keep only channels or groups matching regex (`--group-regex`, `--channel-regex`). |
+| **Rename channels/groups** | Apply find/replace rules from a `replacements.json` file (see [Replacements](docs/replacements.md)). |
+| **HTTPS** | Run behind Traefik (or another reverse proxy) and set `--https` and `--advertised-port` so generated URLs use `https`. See [TLS with Traefik](docs/traefik.md). |
+| **EPG cache** | Cache XMLTV (EPG) responses with `--xmltv-cache-ttl` to avoid hammering the provider. |
 
-### M3u Example
+---
 
-Original iptv m3u file
+## Quick start
 
-```m3u
-#EXTM3U
-#EXTINF:-1 tvg-ID="examplechanel1.com" tvg-name="chanel1" tvg-logo="http://ch.xyz/logo1.png" group-title="USA HD",CHANEL1-HD
-http://iptvexample.net:1234/12/test/1
-#EXTINF:-1 tvg-ID="examplechanel2.com" tvg-name="chanel2" tvg-logo="http://ch.xyz/logo2.png" group-title="USA HD",CHANEL2-HD
-http://iptvexample.net:1234/13/test/2
-#EXTINF:-1 tvg-ID="examplechanel3.com" tvg-name="chanel3" tvg-logo="http://ch.xyz/logo3.png" group-title="USA HD",CHANEL3-HD
-http://iptvexample.net:1234/14/test/3
-#EXTINF:-1 tvg-ID="examplechanel4.com" tvg-name="chanel4" tvg-logo="http://ch.xyz/logo4.png" group-title="USA HD",CHANEL4-HD
-http://iptvexample.net:1234/15/test/4
+### Docker (recommended)
+
+**Option A — Docker Compose (good for a persistent setup)**
+
+1. Clone the repo and go to its directory:
+   ```bash
+   git clone https://github.com/alvarolobato/iptv-proxy.git
+   cd iptv-proxy
+   ```
+2. Edit `docker-compose.yml`: set `M3U_URL` (or use a local file in `./iptv/`), `HOSTNAME`, `USER`, `PASSWORD`, and optionally Xtream vars (`XTREAM_USER`, `XTREAM_PASSWORD`, `XTREAM_BASE_URL`).
+3. Start:
+   ```bash
+   docker-compose up -d
+   ```
+4. Open `http://<HOSTNAME>:8080/iptv.m3u?username=<USER>&password=<PASSWORD>` (or the port you mapped).
+
+**Option B — Single `docker run`**
+
+```bash
+docker run -d \
+  --name iptv-proxy \
+  -p 8080:8080 \
+  -e M3U_URL="http://your-provider.com/get.php?username=user&password=pass&type=m3u_plus&output=m3u8" \
+  -e HOSTNAME=localhost \
+  -e USER=myuser \
+  -e PASSWORD=mypass \
+  alvarolobato/iptv-proxy:latest
 ```
 
-What M3U proxy IPTV do
- - convert chanels url to new endpoints
- - convert original m3u file with new routes pointing to the proxy
+If you don’t have a pre-built image, build and run from the repo root:
 
-Start proxy server example
-
-```Bash
-iptv-proxy --m3u-url http://example.com/get.php?username=user&password=pass&type=m3u_plus&output=m3u8 \
-             --port 8080 \
-             --hostname proxyexample.com \
-             --user test \
-             --password passwordtest
+```bash
+docker build -t iptv-proxy .
+docker run -d --name iptv-proxy -p 8080:8080 \
+  -e M3U_URL="http://..." -e HOSTNAME=localhost -e USER=myuser -e PASSWORD=mypass \
+  iptv-proxy
 ```
 
+---
 
- That's give you an m3u file on a specific endpoint `iptv.m3u` in our example
- 
- `http://proxyserver.com:8080/iptv.m3u?username=test&password=passwordtest`
+### Binary (from release)
 
-All the new routes pointing on your proxy server
-```m3u
-#EXTM3U
-#EXTINF:-1 tvg-ID="examplechanel1.com" tvg-name="chanel1" tvg-logo="http://ch.xyz/logo1.png" group-title="USA HD",CHANEL1-HD
-http://proxyserver.com:8080/12/test/1?username=test&password=passwordtest
-#EXTINF:-1 tvg-ID="examplechanel2.com" tvg-name="chanel2" tvg-logo="http://ch.xyz/logo2.png" group-title="USA HD",CHANEL2-HD
-http://proxyserver.com:8080/13/test/2?username=test&password=passwordtest
-#EXTINF:-1 tvg-ID="examplechanel3.com" tvg-name="chanel3" tvg-logo="http://ch.xyz/logo3.png" group-title="USA HD",CHANEL3-HD
-http://proxyserver.com:8080/14/test/3?username=test&password=passwordtest
-#EXTINF:-1 tvg-ID="examplechanel4.com" tvg-name="chanel4" tvg-logo="http://ch.xyz/logo4.png" group-title="USA HD",CHANEL4-HD
-http://proxyserver.com:8080/15/test/4?username=test&password=passwordtest
-```
+1. Download the latest [release](https://github.com/alvarolobato/iptv-proxy/releases) for your OS/arch (e.g. `iptv-proxy_linux_amd64.tar.gz`).
+2. Unpack and run, for example:
+   ```bash
+   ./iptv-proxy --m3u-url "http://provider.com/get.php?username=u&password=p&type=m3u_plus&output=m3u8" \
+     --port 8080 --hostname localhost --user myuser --password mypass
+   ```
+3. Playlist URL: `http://localhost:8080/iptv.m3u?username=myuser&password=mypass`.
 
-### M3u8 Example
+**Building from source:** `go install` in the repo root (requires Go 1.17+). You can also use a config file (e.g. `~/.iptv-proxy.yaml`) or environment variables; see [Configuration](#configuration).
 
-The m3u8 feature is like m3u.
-The playlist should be in the m3u format and should contain all m3u8 tracks.
+---
 
-Sample of the original m3u file containing m3u8 track:
-```Shell
-#EXTM3U
-#EXTINF:-1 tvg-ID="examplechanel1.com" tvg-name="chanel1" tvg-logo="http://ch.xyz/logo1.png" group-title="USA HD",CHANEL1-HD
-http://iptvexample.net:1234/12/test/1.m3u8
-#EXTINF:-1 tvg-ID="examplechanel2.com" tvg-name="chanel2" tvg-logo="http://ch.xyz/logo2.png" group-title="USA HD",CHANEL2-HD
-http://iptvexample.net:1234/13/test/2.m3u8
-```
+## Configuration
 
-### Xtream code client API example
+All options can be set via **command-line flags**, a **config file** (`~/.iptv-proxy.yaml` or path from `--iptv-proxy-config`), or **environment variables** (`IPTV_PROXY_` + flag name with hyphens as underscores, e.g. `IPTV_PROXY_M3U_URL`).
 
-```Bash
-% iptv-proxy --m3u-url http://example.com:1234/get.php?username=user&password=pass&type=m3u_plus&output=m3u8 \
-             --port 8080 \
-             --hostname proxyexample.com \
-             ## put xtream flags if you want to add xtream proxy
-             --xtream-user xtream_user \
-             --xtream-password xtream_password \
-             --xtream-base-url http://example.com:1234 \
-             --user test \
-             --password passwordtest
-             
-```
+### Main options (summary)
 
-What Xtream proxy do
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--iptv-proxy-config` | — | Config file path (default: `$HOME/.iptv-proxy.yaml`). |
+| `--m3u-url`, `-u` | — | M3U URL or path (required for M3U). For Xtream, often a get.php URL. |
+| `--m3u-file-name` | `iptv.m3u` | Proxified playlist filename. |
+| `--custom-endpoint` | — | Path prefix for M3U (e.g. `api` → `…/api/iptv.m3u`). |
+| `--custom-id` | — | Anti-collision path for track URLs. |
+| `--port` | 8080 | Listen port. |
+| `--advertised-port` | 0 (= port) | Port in generated URLs (e.g. 443 behind reverse proxy). |
+| `--hostname` | — | Hostname or IP in generated URLs. |
+| `--https` | false | Use `https` in generated URLs. |
+| `--user` | usertest | Proxy auth username. |
+| `--password` | passwordtest | Proxy auth password. |
+| `--xtream-user` | — | Xtream provider username (can be inferred from get.php URL). |
+| `--xtream-password` | — | Xtream provider password. |
+| `--xtream-base-url` | — | Xtream provider base URL. |
+| `--xtream-api-get` | false | Serve get.php from Xtream API. |
+| `--m3u-cache-expiration` | 1 | M3U cache TTL (hours). |
+| `--xmltv-cache-ttl` | — | XMLTV cache TTL (e.g. `1h`, `30m`). Empty = no cache. |
+| `--xmltv-cache-max-entries` | 100 | Max cached XMLTV responses. |
+| `--group-regex` | — | Include only tracks whose `group-title` matches this regex. |
+| `--channel-regex` | — | Include only tracks whose channel name matches this regex. |
+| `--json-folder` | — | Folder containing `replacements.json` (see [Replacements](docs/replacements.md)). |
+| `--divide-by-res` | false | Add resolution suffix to groups (FHD/HD/SD). |
+| `--debug-logging` | false | Verbose debug logs. |
+| `--cache-folder` | — | Folder for saving provider responses (debug). |
+| `--use-xtream-advanced-parsing` | false | Alternate Xtream parsing for some providers. |
 
- - convert xtream `xtream-user ` and `xtream-password` into new `user` and `password`
- - convert `xtream-base-url` with `hostname` and `port`
- 
-Original xtream credentials
- 
- ```
- user: xtream_user
- password: xtream_password
- base-url: http://example.com:1234
- ```
- 
-New xtream credentials
+Full reference and examples: **[docs/configuration.md](docs/configuration.md)**.
 
- ```
- user: test
- password: passwordtest
- base-url: http://proxyexample.com:8080
- ```
- 
- All xtream live, streams, vod, series... are proxyfied! 
- 
- 
- You can get the m3u file with the original Xtream api request:
- ```
- http://proxyexample.com:8080/get.php?username=test&password=passwordtest&type=m3u_plus&output=ts
- ```
+- **Filtering and renaming:** [docs/replacements.md](docs/replacements.md) (format of `replacements.json`).
+- **HTTPS / TLS behind Traefik:** [docs/traefik.md](docs/traefik.md).
 
+---
 
-## Installation
+## TLS (HTTPS)
 
-Download lasted [release](https://github.com/pierre-emmanuelJ/iptv-proxy/releases)
+To serve over HTTPS, run IPTV-Proxy behind a reverse proxy (e.g. Traefik). Set `--https`, `--advertised-port` (e.g. 443), and `--hostname` to your domain. Step-by-step with Traefik: **[docs/traefik.md](docs/traefik.md)**.
 
-Or
+---
 
-`% go install` in root repository
+## Documentation
 
-## With Docker
+| Document | Description |
+|----------|-------------|
+| [docs/configuration.md](docs/configuration.md) | Full configuration reference and config file example. |
+| [docs/replacements.md](docs/replacements.md) | M3U name/group replacement rules (`replacements.json`). |
+| [docs/traefik.md](docs/traefik.md) | TLS/HTTPS with Traefik. |
 
-### Prerequisite
+---
 
- - Add an m3u URL in `docker-compose.yml` or add local file in `iptv` folder
- - `HOSTNAME` and `PORT` to expose
- - Expose same container port as the `PORT` ENV variable 
+## License
 
-```Yaml
- ports:
-       # have to be the same as ENV variable PORT
-      - 8080:8080
- environment:
-      # if you are using m3u remote file
-      # M3U_URL: http://example.com:1234/get.php?username=user&password=pass&type=m3u_plus&output=m3u8
-      M3U_URL: /root/iptv/iptv.m3u
-      # Port to expose the IPTVs endpoints
-      PORT: 8080
-      # Hostname or IP to expose the IPTVs endpoints (for machine not for docker)
-      HOSTNAME: localhost
-      GIN_MODE: release
-      ## Xtream-code proxy configuration
-      ## (put these env variables if you want to add xtream proxy)
-      XTREAM_USER: xtream_user
-      XTREAM_PASSWORD: xtream_password
-      XTREAM_BASE_URL: "http://example.com:1234"
-      USER: test
-      PASSWORD: testpassword
-```
+GNU General Public License v3.0 — see [LICENSE](LICENSE).
 
-### Start
+---
 
-```
-% docker-compose up -d
-```
+## Credits
 
-## TLS - https with traefik
-
-Put files and folders of `./traekik` folder in root repo:
-```Shell
-$ cp -r ./traekik/* .
-```
-
-```Shell
-$ mkdir config \
-        && mkdir -p Traefik/etc/traefik \
-        && mkdir -p Traefik/log
-```
-
-
-`docker-compose` sample with traefik:
-```Yaml
-version: "3"
-services:
-  iptv-proxy:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      # If your are using local m3u file instead of m3u remote file
-      # put your m3u file in this folder
-      - ./iptv:/root/iptv
-    container_name: "iptv-proxy"
-    restart: on-failure
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.iptv-proxy.rule=Host(`iptv.proxyexample.xyz`)"
-      - "traefik.http.routers.iptv-proxy.entrypoints=websecure"
-      - "traefik.http.routers.iptv-proxy.tls.certresolver=mydnschallenge"
-      - "traefik.http.services.iptv-proxy.loadbalancer.server.port=8080"
-    environment:
-      # if you are using m3u remote file
-      # M3U_URL: https://example.com/iptvfile.m3u
-      M3U_URL: /root/iptv/iptv.m3u
-      # Iptv-Proxy listening port
-      PORT: 8080
-      # Port to expose for Xtream or m3u file tracks endpoint
-      ADVERTISED_PORT: 443
-      # Hostname or IP to expose the IPTVs endpoints (for machine not for docker)
-      HOSTNAME: iptv.proxyexample.xyz
-      GIN_MODE: release
-      # Inportant to activate https protocol on proxy links
-      HTTPS: 1
-      ## Xtream-code proxy configuration
-      XTREAM_USER: xtream_user
-      XTREAM_PASSWORD: xtream_password
-      XTREAM_BASE_URL: "http://example.tv:1234"
-      #will be used for m3u and xtream auth proxy
-      USER: test
-      PASSWORD: testpassword
-
-  traefik:
-    restart: always
-    image: traefik:v2.4
-    read_only: true
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./Traefik/traefik.yaml:/traefik.yaml:ro
-      - ./Traefik/etc/traefik:/etc/traefik/
-      - ./Traefik/log:/var/log/traefik/
-```
-
-Replace `iptv.proxyexample.xyz` in `docker-compose.yml` with your desired domain.
-
-```Shell
-$ docker-compose up -d
-```
-
-## TODO
-
-there is basic auth just for testing.
-change with a real auth with database and user management
-and auth with token...
-
-**ENJOY!**
-
-## Powered by
-
-- [cobra](https://github.com/spf13/cobra)
-- [go.xtream-codes](https://github.com/tellytv/go.xtream-codes)
-- [gin](https://github.com/gin-gonic/gin)
-
-Grab me a beer 🍻
-
-[![paypal](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/donate?hosted_button_id=WQAAMQWJPKHUN)
-
+- Original project: [Pierre-Emmanuel Jacquier](https://github.com/pierre-emmanuelJ/iptv-proxy).
+- Built with [Cobra](https://github.com/spf13/cobra), [go.xtream-codes](https://github.com/tellytv/go.xtream-codes), [Gin](https://github.com/gin-gonic/gin).
