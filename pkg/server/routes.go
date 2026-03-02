@@ -65,18 +65,8 @@ func (c *Config) xtreamRoutes(r *gin.RouterGroup) {
 	r.GET(fmt.Sprintf("/series/%s/%s/:id", c.User, c.Password), c.xtreamStreamSeries)
 	r.GET(fmt.Sprintf("/hlsr/:token/%s/%s/:channel/:hash/:chunk", c.User, c.Password), c.xtreamHlsrStream)
 	r.GET("/hls/:chunk", c.xtreamHlsStream)
-	// Legacy route for backward compatibility: /hls/:token/:chunk
-	r.GET("/hls/:token/:chunk", func(ctx *gin.Context) {
-		if ctx.Query("token") == "" {
-			token := ctx.Param("token")
-			if token != "" {
-				q := ctx.Request.URL.Query()
-				q.Set("token", token)
-				ctx.Request.URL.RawQuery = q.Encode()
-			}
-		}
-		c.xtreamHlsStream(ctx)
-	})
+	// Legacy: support old path /hls/:token/:chunk by forwarding token as query param
+	r.GET("/hls/:token/:chunk", c.xtreamHlsStreamLegacy)
 	r.GET("/play/:token/:type", c.xtreamStreamPlay)
 }
 

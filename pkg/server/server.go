@@ -88,8 +88,8 @@ func (c *Config) Serve() error {
 	group := router.Group("/")
 	c.routes(group)
 
-	// Add a message to indicate the server is ready
-	log.Printf("[iptv-proxy] Server is ready and listening on :%d", c.HostConfig.Port)
+	// Log after Run would require refactoring (Run blocks). Indicate we are about to listen.
+	log.Printf("[iptv-proxy] Server starting, binding to :%d", c.HostConfig.Port)
 
 	return router.Run(fmt.Sprintf(":%d", c.HostConfig.Port))
 }
