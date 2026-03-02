@@ -11,7 +11,7 @@ This file gives AI agents and future sessions the application context, architect
   2. **Xtream Codes client API** – Proxies the Xtream API (live, VOD, series, EPG/xmltv.php, get.php, player_api.php, HLS, etc.) and rewrites credentials and base URL so clients use the proxy instead of the provider.
 
 - **Tech:** Go, Cobra/Viper for CLI and config, Gin for HTTP, vendored deps (e.g. `github.com/tellytv/go.xtream-codes`, `github.com/jamesnetherton/m3u`).
-- **Module path:** `github.com/pierre-emmanuelJ/iptv-proxy` (upstream); this repo may be a fork (e.g. `alvarolobato/iptv-proxy`).
+- **Module path:** `github.com/alvarolobato/iptv-proxy`; this repo may be a fork (e.g. `alvarolobato/iptv-proxy`).
 
 ---
 

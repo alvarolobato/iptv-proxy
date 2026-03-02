@@ -33,7 +33,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jamesnetherton/m3u"
-	xtreamapi "github.com/pierre-emmanuelJ/iptv-proxy/pkg/xtream-proxy"
+	xtreamapi "github.com/alvarolobato/iptv-proxy/pkg/xtream-proxy"
 	uuid "github.com/satori/go.uuid"
 )
 
@@ -388,8 +388,31 @@ func (c *Config) xtreamStreamSeries(ctx *gin.Context) {
 	c.xtreamStream(ctx, rpURL)
 }
 
-func (c *Config) xtreamHlsStream(ctx *gin.Context) {
-	chunk := ctx.Param("chunk")
+// xtreamHlsDispatch handles both /hls/:chunk (token in query) and /hls/:token/:chunk in a single route
+// because Gin's router cannot register both patterns (conflicting wildcards at the same path segment).
+func (c *Config) xtreamHlsDispatch(ctx *gin.Context) {
+	path := strings.TrimPrefix(ctx.Param("path"), "/")
+	if path == "" {
+		ctx.AbortWithError(http.StatusBadRequest, errors.New("missing path")) // nolint: errcheck
+		return
+	}
+	parts := strings.SplitN(path, "/", 2)
+	var token, chunk string
+	if len(parts) == 2 {
+		token, chunk = parts[0], parts[1]
+	} else {
+		chunk = parts[0]
+		var ok bool
+		token, ok = ctx.GetQuery("token")
+		if !ok || token == "" {
+			ctx.AbortWithError(http.StatusBadRequest, errors.New("missing token query parameter")) // nolint: errcheck
+			return
+		}
+	}
+	c.xtreamHlsStreamWithTokenChunk(ctx, token, chunk)
+}
+
+func (c *Config) xtreamHlsStreamWithTokenChunk(ctx *gin.Context, token, chunk string) {
 	s := strings.Split(chunk, "_")
 	if len(s) != 2 {
 		ctx.AbortWithError( // nolint: errcheck
@@ -406,12 +429,6 @@ func (c *Config) xtreamHlsStream(ctx *gin.Context) {
 		return
 	}
 
-	token, ok := ctx.GetQuery("token")
-	if !ok || token == "" {
-		ctx.AbortWithError(http.StatusBadRequest, errors.New("missing token query parameter")) // nolint: errcheck
-		return
-	}
-
 	req := &url.URL{
 		Scheme:   hlsURL.Scheme,
 		Host:     hlsURL.Host,
@@ -420,14 +437,6 @@ func (c *Config) xtreamHlsStream(ctx *gin.Context) {
 	}
 
 	c.xtreamStream(ctx, req)
-}
-
-// xtreamHlsStreamLegacy handles legacy path /hls/:token/:chunk by forwarding token as query param.
-func (c *Config) xtreamHlsStreamLegacy(ctx *gin.Context) {
-	q := ctx.Request.URL.Query()
-	q.Set("token", ctx.Param("token"))
-	ctx.Request.URL.RawQuery = q.Encode()
-	c.xtreamHlsStream(ctx)
 }
 
 func (c *Config) xtreamHlsrStream(ctx *gin.Context) {
