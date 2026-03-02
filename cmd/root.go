@@ -41,7 +41,7 @@ var rootCmd = &cobra.Command{
 	Use:   "iptv-proxy",
 	Short: "Reverse proxy on iptv m3u file and xtream codes server api",
 	Run: func(cmd *cobra.Command, args []string) {
-		log.Printf("[iptv-proxy] Server is starting...")
+		log.Printf("[iptv-proxy] INFO: Server is starting...")
 		m3uURL := viper.GetString("m3u-url")
 		remoteHostURL, err := url.Parse(m3uURL)
 		if err != nil {
