@@ -66,6 +66,7 @@ func (c *Config) xtreamRoutes(r *gin.RouterGroup) {
 	r.GET(fmt.Sprintf("/hlsr/:token/%s/%s/:channel/:hash/:chunk", c.User, c.Password), c.xtreamHlsrStream)
 	r.GET("/hls/:token/:chunk", c.xtreamHlsStream)
 	r.GET("/play/:token/:type", c.xtreamStreamPlay)
+	r.GET(fmt.Sprintf("/play/%s/%s/:id", c.User, c.Password), c.xtreamStreamHandler)
 }
 
 func (c *Config) m3uRoutes(r *gin.RouterGroup) {
