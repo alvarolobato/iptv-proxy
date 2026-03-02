@@ -64,9 +64,9 @@ func NewServer(config *config.ProxyConfig) (*Config, error) {
 		}
 	}
 
-        if trimmedCustomId := strings.Trim(config.CustomId, "/"); trimmedCustomId != "" {
-                endpointAntiColision = trimmedCustomId
-        }
+	if trimmedCustomId := strings.Trim(config.CustomId, "/"); trimmedCustomId != "" {
+		endpointAntiColision = trimmedCustomId
+	}
 
 	return &Config{
 		config,
@@ -87,6 +87,9 @@ func (c *Config) Serve() error {
 	router.Use(cors.Default())
 	group := router.Group("/")
 	c.routes(group)
+
+	// Log after Run would require refactoring (Run blocks). Indicate we are about to listen.
+	log.Printf("[iptv-proxy] Server starting, binding to :%d", c.HostConfig.Port)
 
 	return router.Run(fmt.Sprintf(":%d", c.HostConfig.Port))
 }
