@@ -1,6 +1,6 @@
 # Iptv Proxy
 
-[![Actions Status](https://github.com/pierre-emmanuelJ/iptv-proxy/workflows/CI/badge.svg)](https://github.com/pierre-emmanuelJ/iptv-proxy/actions?query=workflow%3ACI)
+[![Actions Status](https://github.com/alvarolobato/iptv-proxy/workflows/CI/badge.svg)](https://github.com/alvarolobato/iptv-proxy/actions?query=workflow%3ACI)
 
 ## Description
 
@@ -133,7 +133,7 @@ Extra options (M3U filter/replacement, XMLTV cache, debug flags, etc.) and detai
 
 ## Installation
 
-Download lasted [release](https://github.com/pierre-emmanuelJ/iptv-proxy/releases)
+Download lasted [release](https://github.com/alvarolobato/iptv-proxy/releases)
 
 Or
 

@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/pierre-emmanuelJ/iptv-proxy/pkg/config"
+	"github.com/alvarolobato/iptv-proxy/pkg/config"
 )
 
 func TestNewServer_EmptyRemoteURL(t *testing.T) {

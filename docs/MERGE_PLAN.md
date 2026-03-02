@@ -88,7 +88,7 @@ This document is the detailed plan for consolidating fork features into `master`
 | Item | Branches | Reason |
 |------|----------|--------|
 | **Any CI/CD** | Gibby_main, Gibby_patch-parsing, Gibby_regex-filters, ridgarou_master, Yagoor (cd.yml) | User requested no CI. |
-| **Module path changes** | Gibby_*, ridgarou | Keep `github.com/pierre-emmanuelJ/iptv-proxy` (or repo owner). |
+| **Module path changes** | Gibby_*, ridgarou | Keep `github.com/alvarolobato/iptv-proxy` (or repo owner). |
 | **Author/attribution change** | ridgarou (pierre → ridgarou) | Keep original attribution. |
 | **README overhaul / docker-compose template** | chernandezweb | Only code features; docs can be updated separately. |
 | **Trivial "." commits** | chernandezweb | Noise; not brought in. |

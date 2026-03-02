@@ -144,7 +144,7 @@ This comparison and the per-PR improvement lists in each PR body should be enoug
 | Item | Reason |
 |------|--------|
 | **Any CI/CD** | User requested no CI from any branch. |
-| **Module path changes** | Keep upstream path (e.g. `github.com/pierre-emmanuelJ/iptv-proxy`). |
+| **Module path changes** | Keep upstream path (e.g. `github.com/alvarolobato/iptv-proxy`). |
 | **Author/attribution change** (pierre → ridgarou) | Keep original attribution. |
 | **README overhaul / docker-compose template** (chernandezweb) | Only code features brought in; docs separate. |
 | **Trivial "." commits** (chernandezweb) | Not brought in. |
