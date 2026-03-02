@@ -23,6 +23,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/pierre-emmanuelJ/iptv-proxy/pkg/config"
@@ -69,10 +70,9 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
-		config.DebugLoggingEnabled = viper.GetBool("debug-logging")
-		config.CacheFolder = viper.GetString("cache-folder")
-		if config.CacheFolder != "" && !strings.HasSuffix(config.CacheFolder, "/") {
-			config.CacheFolder += "/"
+		cacheFolder := viper.GetString("cache-folder")
+		if cacheFolder != "" {
+			cacheFolder = filepath.Clean(cacheFolder)
 		}
 
 		conf := &config.ProxyConfig{
@@ -80,20 +80,22 @@ var rootCmd = &cobra.Command{
 				Hostname: viper.GetString("hostname"),
 				Port:     viper.GetInt("port"),
 			},
-			RemoteURL:            remoteHostURL,
-			XtreamUser:           config.CredentialString(xtreamUser),
-			XtreamPassword:       config.CredentialString(xtreamPassword),
-			XtreamBaseURL:        xtreamBaseURL,
-			M3UCacheExpiration:   viper.GetInt("m3u-cache-expiration"),
-			User:                 config.CredentialString(viper.GetString("user")),
-			Password:             config.CredentialString(viper.GetString("password")),
-			AdvertisedPort:       viper.GetInt("advertised-port"),
-			HTTPS:                viper.GetBool("https"),
-			M3UFileName:          viper.GetString("m3u-file-name"),
-			CustomEndpoint:       viper.GetString("custom-endpoint"),
-			CustomId:             viper.GetString("custom-id"),
-			XtreamGenerateApiGet: viper.GetBool("xtream-api-get"),
-			UseXtreamAdvancedParsing: viper.GetBool("use-xtream-advanced-parsing"),
+			RemoteURL:                 remoteHostURL,
+			XtreamUser:                config.CredentialString(xtreamUser),
+			XtreamPassword:            config.CredentialString(xtreamPassword),
+			XtreamBaseURL:             xtreamBaseURL,
+			M3UCacheExpiration:       viper.GetInt("m3u-cache-expiration"),
+			User:                      config.CredentialString(viper.GetString("user")),
+			Password:                  config.CredentialString(viper.GetString("password")),
+			AdvertisedPort:            viper.GetInt("advertised-port"),
+			HTTPS:                     viper.GetBool("https"),
+			M3UFileName:               viper.GetString("m3u-file-name"),
+			CustomEndpoint:            viper.GetString("custom-endpoint"),
+			CustomId:                  viper.GetString("custom-id"),
+			XtreamGenerateApiGet:      viper.GetBool("xtream-api-get"),
+			UseXtreamAdvancedParsing:  viper.GetBool("use-xtream-advanced-parsing"),
+			DebugLoggingEnabled:       viper.GetBool("debug-logging"),
+			CacheFolder:               cacheFolder,
 		}
 
 		if conf.AdvertisedPort == 0 {
