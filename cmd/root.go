@@ -149,6 +149,7 @@ func parseDuration(s string) time.Duration {
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {
+		log.Printf("invalid duration value %q, defaulting to 0 (caching disabled): %v", s, err)
 		return 0
 	}
 	return d
