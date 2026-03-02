@@ -70,4 +70,6 @@ type ProxyConfig struct {
 	DebugLoggingEnabled bool
 	// CacheFolder is the directory for saving provider/client responses (when non-empty). Use filepath.Join with this; no trailing separator.
 	CacheFolder string
+	// UIPort is the port for the configuration UI (0 = disabled).
+	UIPort int
 }

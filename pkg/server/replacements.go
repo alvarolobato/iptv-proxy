@@ -58,6 +58,37 @@ func compileReplacementSlice(rules []Replacement) []CompiledReplacement {
 	return out
 }
 
+// EnsureStubReplacements creates an empty replacements.json with all sections if the file does not exist.
+// dir is the JSON folder (e.g. from --json-folder). No-op if dir is empty.
+func EnsureStubReplacements(dir string) {
+	if dir == "" {
+		return
+	}
+	path := filepath.Join(dir, "replacements.json")
+	if _, err := os.Stat(path); err == nil {
+		return
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("[iptv-proxy] Could not create JSON folder %s: %v", dir, err)
+		return
+	}
+	stub := replacementsJSON{
+		Global: []Replacement{},
+		Names:  []Replacement{},
+		Groups: []Replacement{},
+	}
+	data, err := json.MarshalIndent(stub, "", "  ")
+	if err != nil {
+		log.Printf("[iptv-proxy] Could not marshal stub replacements: %v", err)
+		return
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		log.Printf("[iptv-proxy] Could not write stub %s: %v", path, err)
+		return
+	}
+	log.Printf("[iptv-proxy] Created stub %s", path)
+}
+
 func loadReplacements(filename string) Replacements {
 	var out Replacements
 	if filename == "" {

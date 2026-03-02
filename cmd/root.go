@@ -103,6 +103,7 @@ var rootCmd = &cobra.Command{
 			UseXtreamAdvancedParsing:   viper.GetBool("use-xtream-advanced-parsing"),
 			DebugLoggingEnabled:       viper.GetBool("debug-logging"),
 			CacheFolder:               cacheFolder,
+			UIPort:                    viper.GetInt("ui-port"),
 		}
 
 		if conf.AdvertisedPort == 0 {
@@ -159,7 +160,8 @@ func init() {
 	rootCmd.Flags().Bool("divide-by-res", false, "Divide groups by resolution (FHD/HD/SD)")
 	rootCmd.Flags().Bool("debug-logging", false, "Enable debug logging")
 	rootCmd.Flags().String("cache-folder", "", "Folder to save provider/client responses for debugging (optional)")
-	rootCmd.Flags().Bool("use-xtream-advanced-parsing", false, "Use alternate Xtream parsing to preserve raw provider response")
+		rootCmd.Flags().Bool("use-xtream-advanced-parsing", false, "Use alternate Xtream parsing to preserve raw provider response")
+		rootCmd.Flags().Int("ui-port", 0, "Port for the configuration UI (0 = disabled)")
 
 	if e := viper.BindPFlags(rootCmd.Flags()); e != nil {
 		log.Fatal("error binding PFlags to viper")

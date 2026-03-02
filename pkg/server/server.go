@@ -84,8 +84,13 @@ func NewServer(config *config.ProxyConfig) (*Config, error) {
 
 // Serve the iptv-proxy api
 func (c *Config) Serve() error {
+	EnsureStubReplacements(c.JSONFolder)
 	if err := c.playlistInitialization(); err != nil {
 		return err
+	}
+
+	if c.UIPort > 0 {
+		go c.runUIServer()
 	}
 
 	router := gin.Default()

@@ -139,10 +139,12 @@ All options can be set via **command-line flags**, a **config file** (`~/.iptv-p
 | `--debug-logging` | No | false | Verbose debug logs. |
 | `--cache-folder` | No | — | Folder for saving provider responses (debug). |
 | `--use-xtream-advanced-parsing` | No | false | Alternate Xtream parsing for some providers. |
+| `--ui-port` | No | 0 | Port for the configuration UI (0 = disabled). See [Configuration UI](docs/ui.md). |
 
 Full reference and examples: **[docs/configuration.md](docs/configuration.md)**.
 
 - **Filtering and renaming:** [docs/replacements.md](docs/replacements.md) (format of `replacements.json`).
+- **Configuration UI:** [docs/ui.md](docs/ui.md) (manage groups, channels, and replacements in the browser; requires `--ui-port` and `--json-folder`).
 - **HTTPS / TLS behind Traefik:** [docs/traefik.md](docs/traefik.md).
 
 ---
@@ -161,6 +163,7 @@ To serve over HTTPS, run IPTV-Proxy behind a reverse proxy (e.g. Traefik). Set `
 | [docs/replacements.md](docs/replacements.md) | M3U name/group replacement rules (`replacements.json`). |
 | [docs/traefik.md](docs/traefik.md) | TLS/HTTPS with Traefik. |
 | [docs/release.md](docs/release.md) | How to create a release and build binaries. |
+| [docs/ui.md](docs/ui.md) | Configuration UI (groups, channels, replacements). |
 
 ---
 
