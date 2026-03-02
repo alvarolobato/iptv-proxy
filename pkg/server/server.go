@@ -122,7 +122,7 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 				name = track.Tags[i].Value
 			}
 			if track.Tags[i].Name == "tvg-logo" && strings.Contains(track.Tags[i].Value, ",") {
-				log.Printf("[iptv-proxy] tvg-logo contained comma, clearing: %s", track.Tags[i].Value)
+				log.Printf("[iptv-proxy] tvg-logo contained comma, clearing for track: %s", track.Name)
 				track.Tags[i].Value = ""
 			}
 			if i == len(track.Tags)-1 {
