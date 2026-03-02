@@ -80,6 +80,7 @@ var rootCmd = &cobra.Command{
 			XtreamBaseURL:        xtreamBaseURL,
 			M3UCacheExpiration:   viper.GetInt("m3u-cache-expiration"),
 			XMLTVCacheTTL:        parseDuration(viper.GetString("xmltv-cache-ttl")),
+			XMLTVCacheMaxEntries: viper.GetInt("xmltv-cache-max-entries"),
 			User:                 config.CredentialString(viper.GetString("user")),
 			Password:             config.CredentialString(viper.GetString("password")),
 			AdvertisedPort:       viper.GetInt("advertised-port"),
@@ -136,6 +137,7 @@ func init() {
 	rootCmd.Flags().String("xtream-base-url", "", "Xtream-code base url e.g(http://expample.tv:8080)")
 	rootCmd.Flags().Int("m3u-cache-expiration", 1, "M3U cache expiration in hour")
 	rootCmd.Flags().String("xmltv-cache-ttl", "", "XMLTV cache TTL (e.g. 1h, 30m); empty = no cache")
+	rootCmd.Flags().Int("xmltv-cache-max-entries", 100, "Max XMLTV cache entries (evicts oldest when full)")
 	rootCmd.Flags().BoolP("xtream-api-get", "", false, "Generate get.php from xtream API instead of get.php original endpoint")
 
 	if e := viper.BindPFlags(rootCmd.Flags()); e != nil {
@@ -149,7 +151,7 @@ func parseDuration(s string) time.Duration {
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {
-		log.Printf("invalid duration value %q, defaulting to 0 (caching disabled): %v", s, err)
+		log.Printf("[iptv-proxy] WARN: invalid duration %q: %v; using 0", s, err)
 		return 0
 	}
 	return d

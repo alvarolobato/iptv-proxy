@@ -51,6 +51,7 @@ type ProxyConfig struct {
 	XtreamGenerateApiGet bool
 	M3UCacheExpiration   int
 	XMLTVCacheTTL        time.Duration // 0 = no cache
+	XMLTVCacheMaxEntries int           // max cached responses (0 = use default)
 	M3UFileName          string
 	CustomEndpoint       string
 	CustomId             string
