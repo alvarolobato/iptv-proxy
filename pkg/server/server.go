@@ -77,7 +77,7 @@ func NewServer(config *config.ProxyConfig) (*Config, error) {
 		proxyfiedM3UPath:     defaultProxyfiedM3UPath,
 		endpointAntiColision: endpointAntiColision,
 	}
-	cfg.xmltvCache = newResponseCache(config.XMLTVCacheTTL)
+	cfg.xmltvCache = newResponseCache(config.XMLTVCacheTTL, config.XMLTVCacheMaxEntries)
 	return cfg, nil
 }
 
