@@ -59,4 +59,9 @@ type ProxyConfig struct {
 	AdvertisedPort       int
 	HTTPS                bool
 	User, Password       CredentialString
+	// M3U filter and replacement (optional)
+	GroupRegex   string // include only tracks whose group-title matches (empty = all)
+	ChannelRegex string // include only tracks whose name matches (empty = all)
+	JSONFolder   string // folder containing replacements.json for name/group replacement
+	DivideByRes  bool   // divide groups by resolution (FHD/HD/SD)
 }
