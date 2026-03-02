@@ -20,6 +20,7 @@ package config
 
 import (
 	"net/url"
+	"time"
 )
 
 // CredentialString represents an iptv-proxy credential.
@@ -49,6 +50,8 @@ type ProxyConfig struct {
 	XtreamBaseURL        string
 	XtreamGenerateApiGet bool
 	M3UCacheExpiration   int
+	XMLTVCacheTTL        time.Duration // 0 = no cache
+	XMLTVCacheMaxEntries int           // max cached responses (0 = use default)
 	M3UFileName          string
 	CustomEndpoint       string
 	CustomId             string
@@ -56,4 +59,15 @@ type ProxyConfig struct {
 	AdvertisedPort       int
 	HTTPS                bool
 	User, Password       CredentialString
+	// M3U filter and replacement (optional)
+	GroupRegex   string // include only tracks whose group-title matches (empty = all)
+	ChannelRegex string // include only tracks whose name matches (empty = all)
+	JSONFolder   string // folder containing replacements.json for name/group replacement
+	DivideByRes  bool   // divide groups by resolution (FHD/HD/SD)
+	// UseXtreamAdvancedParsing uses alternate parsing for some Xtream requests to preserve raw provider response (default false).
+	UseXtreamAdvancedParsing bool
+	// DebugLoggingEnabled enables verbose debug logging when true.
+	DebugLoggingEnabled bool
+	// CacheFolder is the directory for saving provider/client responses (when non-empty). Use filepath.Join with this; no trailing separator.
+	CacheFolder string
 }

@@ -264,29 +264,58 @@ func (c *Config) xtreamPlayerAPI(ctx *gin.Context, q url.Values) {
 		return
 	}
 
-	log.Printf("[iptv-proxy] %v | %s |Action\t%s\n", time.Now().Format("2006/01/02 - 15:04:05"), ctx.ClientIP(), action)
-
-	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-		return
-	}
-
 	ctx.JSON(http.StatusOK, resp)
 }
 
 func (c *Config) xtreamXMLTV(ctx *gin.Context) {
-	client, err := xtreamapi.New(c.XtreamUser.String(), c.XtreamPassword.String(), c.XtreamBaseURL, ctx.Request.UserAgent())
-	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-		return
+	cacheKey := ctx.Request.URL.Query().Encode()
+	if c.xmltvCache != nil {
+		if entry, ok := c.xmltvCache.Get(cacheKey); ok {
+			ctx.Data(http.StatusOK, entry.contentType, entry.payload)
+			return
+		}
 	}
 
-	resp, err := client.GetXMLTV()
-	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+	const maxRetries = 3
+	var resp []byte
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(attempt*attempt) * 200 * time.Millisecond
+			if jitter := time.Duration(attempt*50) * time.Millisecond; jitter > 0 {
+				backoff += jitter
+			}
+			select {
+			case <-ctx.Request.Context().Done():
+				lastErr = ctx.Request.Context().Err()
+				break
+			case <-time.After(backoff):
+			}
+		}
+		if ctx.Request.Context().Err() != nil {
+			break
+		}
+		client, err := xtreamapi.New(c.XtreamUser.String(), c.XtreamPassword.String(), c.XtreamBaseURL, ctx.Request.UserAgent())
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		resp, err = client.GetXMLTV()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		lastErr = nil
+		break
+	}
+	if lastErr != nil {
+		log.Printf("[iptv-proxy] XMLTV failed after %d attempts: %v; returning empty EPG", maxRetries, lastErr)
+		ctx.Data(http.StatusOK, "application/xml", []byte(`<?xml version="1.0" encoding="UTF-8"?><tv></tv>`))
 		return
 	}
-
+	if c.xmltvCache != nil {
+		c.xmltvCache.Set(cacheKey, resp, "application/xml")
+	}
 	ctx.Data(http.StatusOK, "application/xml", resp)
 }
 
@@ -371,28 +400,34 @@ func (c *Config) xtreamHlsStream(ctx *gin.Context) {
 	}
 	channel := s[0]
 
-	url, err := getHlsRedirectURL(channel)
+	hlsURL, err := getHlsRedirectURL(channel)
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
 
-	req, err := url.Parse(
-		fmt.Sprintf(
-			"%s://%s/hls/%s/%s",
-			url.Scheme,
-			url.Host,
-			ctx.Param("token"),
-			ctx.Param("chunk"),
-		),
-	)
-
-	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+	token, ok := ctx.GetQuery("token")
+	if !ok || token == "" {
+		ctx.AbortWithError(http.StatusBadRequest, errors.New("missing token query parameter")) // nolint: errcheck
 		return
+	}
+
+	req := &url.URL{
+		Scheme:   hlsURL.Scheme,
+		Host:     hlsURL.Host,
+		Path:     "/hls/" + chunk,
+		RawQuery: url.Values{"token": {token}}.Encode(),
 	}
 
 	c.xtreamStream(ctx, req)
+}
+
+// xtreamHlsStreamLegacy handles legacy path /hls/:token/:chunk by forwarding token as query param.
+func (c *Config) xtreamHlsStreamLegacy(ctx *gin.Context) {
+	q := ctx.Request.URL.Query()
+	q.Set("token", ctx.Param("token"))
+	ctx.Request.URL.RawQuery = q.Encode()
+	c.xtreamHlsStream(ctx)
 }
 
 func (c *Config) xtreamHlsrStream(ctx *gin.Context) {

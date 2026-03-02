@@ -4,6 +4,19 @@ import (
 	"testing"
 )
 
+func TestProxyConfig_DebugAndCacheFields(t *testing.T) {
+	conf := &ProxyConfig{
+		DebugLoggingEnabled: true,
+		CacheFolder:         "/var/cache/iptv",
+	}
+	if !conf.DebugLoggingEnabled {
+		t.Error("DebugLoggingEnabled should be true")
+	}
+	if conf.CacheFolder != "/var/cache/iptv" {
+		t.Errorf("CacheFolder = %q", conf.CacheFolder)
+	}
+}
+
 func TestCredentialString_String(t *testing.T) {
 	c := CredentialString("user@pass")
 	if got := c.String(); got != "user@pass" {
