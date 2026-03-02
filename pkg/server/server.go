@@ -112,10 +112,18 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 
 	var reGroup, reChannel *regexp.Regexp
 	if c.GroupRegex != "" {
-		reGroup = regexp.MustCompile(c.GroupRegex)
+		var err error
+		reGroup, err = regexp.Compile(c.GroupRegex)
+		if err != nil {
+			log.Printf("invalid group regex %q: %v; grouping by regex disabled for this playlist", c.GroupRegex, err)
+		}
 	}
 	if c.ChannelRegex != "" {
-		reChannel = regexp.MustCompile(c.ChannelRegex)
+		var err error
+		reChannel, err = regexp.Compile(c.ChannelRegex)
+		if err != nil {
+			log.Printf("invalid channel regex %q: %v; channel filtering by regex disabled for this playlist", c.ChannelRegex, err)
+		}
 	}
 
 	reFHD := regexp.MustCompile(`\sFHD$`)
