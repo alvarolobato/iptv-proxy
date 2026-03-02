@@ -26,6 +26,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/gin-contrib/cors"
@@ -108,23 +109,134 @@ func (c *Config) playlistInitialization() error {
 	return c.marshallInto(f, false)
 }
 
-// MarshallInto a *bufio.Writer a Playlist.
+// marshallInto writes the playlist to a file, applying optional filter, replacement, and resolution grouping.
 func (c *Config) marshallInto(into *os.File, xtream bool) error {
 	filteredTrack := make([]m3u.Track, 0, len(c.playlist.Tracks))
 
+	var reGroup, reChannel *regexp.Regexp
+	if c.GroupRegex != "" {
+		var err error
+		reGroup, err = regexp.Compile(c.GroupRegex)
+		if err != nil {
+			log.Printf("[iptv-proxy] Invalid group-regex, disabling filter: %v", err)
+		}
+	}
+	if c.ChannelRegex != "" {
+		var err error
+		reChannel, err = regexp.Compile(c.ChannelRegex)
+		if err != nil {
+			log.Printf("[iptv-proxy] Invalid channel-regex, disabling filter: %v", err)
+		}
+	}
+
+	reFHD := regexp.MustCompile(`\sFHD$`)
+	reHD := regexp.MustCompile(`\sHD$`)
+	reSD := regexp.MustCompile(`\sSD$`)
+
+	var replacements Replacements
+	if c.JSONFolder != "" {
+		replacements = loadReplacements(filepath.Join(c.JSONFolder, "replacements.json"))
+	}
+
+	tracks := make([]m3u.Track, len(c.playlist.Tracks))
+	copy(tracks, c.playlist.Tracks)
+
+	for i := range tracks {
+		track := &tracks[i]
+		// Ensure tvg-id tag exists
+		hasTvgID := false
+		for t := range track.Tags {
+			if track.Tags[t].Name == "tvg-id" {
+				hasTvgID = true
+				break
+			}
+		}
+		if !hasTvgID {
+			track.Tags = append(track.Tags, m3u.Tag{Name: "tvg-id", Value: ""})
+		}
+
+		track.Name = applyReplacements(replacements.Global, track.Name)
+		track.Name = applyReplacements(replacements.Names, track.Name)
+
+		// Derive resolution from track.Name and then from tvg-name tag
+		isFHD := reFHD.MatchString(track.Name)
+		isHD := reHD.MatchString(track.Name)
+		isSD := reSD.MatchString(track.Name)
+		for j := range track.Tags {
+			tag := &track.Tags[j]
+			tag.Value = applyReplacements(replacements.Global, tag.Value)
+			switch tag.Name {
+			case "tvg-name":
+				if c.DivideByRes {
+					isFHD = isFHD || reFHD.MatchString(tag.Value)
+					isHD = isHD || reHD.MatchString(tag.Value)
+					isSD = isSD || reSD.MatchString(tag.Value)
+					if !isFHD && !isHD && !isSD {
+						isHD = true
+					}
+				}
+			case "group-title":
+				tag.Value = applyReplacements(replacements.Groups, tag.Value)
+				if c.DivideByRes {
+					switch {
+					case isFHD:
+						tag.Value = tag.Value + " FHD"
+					case isHD:
+						tag.Value = tag.Value + " HD"
+					case isSD:
+						tag.Value = tag.Value + " SD"
+					}
+				}
+			}
+		}
+
+		if c.DivideByRes {
+			switch {
+			case isFHD:
+				track.Name = reFHD.ReplaceAllString(track.Name, "")
+			case isHD:
+				track.Name = reHD.ReplaceAllString(track.Name, "")
+			case isSD:
+				track.Name = reSD.ReplaceAllString(track.Name, "")
+			}
+		}
+	}
+
+	// Filter by channel and group regex (single pass, new slice)
+	kept := make([]m3u.Track, 0, len(tracks))
+	for _, track := range tracks {
+		if reChannel != nil && !reChannel.MatchString(track.Name) {
+			continue
+		}
+		groupMatch := reGroup == nil
+		if reGroup != nil {
+			for _, t := range track.Tags {
+				if t.Name == "group-title" && reGroup.MatchString(t.Value) {
+					groupMatch = true
+					break
+				}
+			}
+		}
+		if groupMatch {
+			kept = append(kept, track)
+		}
+	}
+	tracks = kept
+
 	ret := 0
 	into.WriteString("#EXTM3U\n") // nolint: errcheck
-	for i, track := range c.playlist.Tracks {
+	for i, track := range tracks {
 		var buffer bytes.Buffer
-
 		buffer.WriteString("#EXTINF:")                       // nolint: errcheck
 		buffer.WriteString(fmt.Sprintf("%d ", track.Length)) // nolint: errcheck
-		for i := range track.Tags {
-			if i == len(track.Tags)-1 {
-				buffer.WriteString(fmt.Sprintf("%s=%q", track.Tags[i].Name, track.Tags[i].Value)) // nolint: errcheck
+		for ti := range track.Tags {
+			name := track.Tags[ti].Name
+			value := track.Tags[ti].Value
+			if ti == len(track.Tags)-1 {
+				buffer.WriteString(fmt.Sprintf("%s=%q", name, value)) // nolint: errcheck
 				continue
 			}
-			buffer.WriteString(fmt.Sprintf("%s=%q ", track.Tags[i].Name, track.Tags[i].Value)) // nolint: errcheck
+			buffer.WriteString(fmt.Sprintf("%s=%q ", name, value)) // nolint: errcheck
 		}
 
 		uri, err := c.replaceURL(track.URI, i-ret, xtream)
@@ -133,9 +245,7 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 			log.Printf("ERROR: track: %s: %s", track.Name, err)
 			continue
 		}
-
 		into.WriteString(fmt.Sprintf("%s, %s\n%s\n", buffer.String(), track.Name, uri)) // nolint: errcheck
-
 		filteredTrack = append(filteredTrack, track)
 	}
 	c.playlist.Tracks = filteredTrack

@@ -89,6 +89,10 @@ var rootCmd = &cobra.Command{
 			CustomEndpoint:       viper.GetString("custom-endpoint"),
 			CustomId:             viper.GetString("custom-id"),
 			XtreamGenerateApiGet: viper.GetBool("xtream-api-get"),
+			GroupRegex:           viper.GetString("group-regex"),
+			ChannelRegex:         viper.GetString("channel-regex"),
+			JSONFolder:           viper.GetString("json-folder"),
+			DivideByRes:          viper.GetBool("divide-by-res"),
 		}
 
 		if conf.AdvertisedPort == 0 {
@@ -137,6 +141,10 @@ func init() {
 	rootCmd.Flags().String("xtream-base-url", "", "Xtream-code base url e.g(http://expample.tv:8080)")
 	rootCmd.Flags().Int("m3u-cache-expiration", 1, "M3U cache expiration in hour")
 	rootCmd.Flags().BoolP("xtream-api-get", "", false, "Generate get.php from xtream API instead of get.php original endpoint")
+	rootCmd.Flags().String("group-regex", "", "Include only M3U tracks whose group-title matches this regex (empty = all)")
+	rootCmd.Flags().String("channel-regex", "", "Include only M3U tracks whose channel name matches this regex (empty = all)")
+	rootCmd.Flags().String("json-folder", "", "Folder containing replacements.json for name/group replacement rules")
+	rootCmd.Flags().Bool("divide-by-res", false, "Divide groups by resolution (FHD/HD/SD)")
 
 	if e := viper.BindPFlags(rootCmd.Flags()); e != nil {
 		log.Fatal("error binding PFlags to viper")
