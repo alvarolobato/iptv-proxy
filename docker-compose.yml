@@ -1,33 +1,17 @@
 version: "3"
 services:
-  iptv-proxy:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      # If your are using local m3u file instead of m3u remote file
-      # put your m3u file in this folder
-      - ./iptv:/root/iptv
-    container_name: "iptv-proxy"
+  iptv-proxy2:
+    image: alobato/iptv-proxy2:latest
+    container_name: iptv-proxy2
     restart: on-failure
+    volumes:
+      - ./data:/data
     ports:
-       # have to be the same as ENV variable PORT
-      - 8080:8080
+      - "8080:8080"
     environment:
-      # if you are using m3u remote file
-      # M3U_URL: https://example.com/iptvfile.m3u
-      M3U_URL: /root/iptv/iptv.m3u
-      # Port to expose the IPTVs endpoints
+      M3U_URL: "http://example.com/get.php?username=USER&password=PASS&type=m3u_plus&output=m3u8"
       PORT: 8080
-      # Hostname or IP to expose the IPTVs endpoints (for machine not for docker)
       HOSTNAME: localhost
-      GIN_MODE: release
-      ## Xtream-code proxy configuration
-      XTREAM_USER: xtream_user
-      XTREAM_PASSWORD: xtream_password
-      XTREAM_BASE_URL: "http://example.tv:8080"
-      ##### UNSAFE AUTH TODO ADD REAL AUTH
-      #will be used for m3u and xtream auth poxy
-      USER: test
-      PASSWORD: testpassword
-
+      USER: myuser
+      PASSWORD: mypass
+      JSON_FOLDER: /data

@@ -1,35 +1,30 @@
 version: "3"
 services:
-  iptv-proxy:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ./iptv:/root/iptv
-    container_name: "iptv-proxy"
+  iptv-proxy2:
+    image: alobato/iptv-proxy2:latest
+    container_name: iptv-proxy2
     restart: on-failure
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.iptv-proxy.rule=Host(`iptv.proxyexample.xyz`)"
-      - "traefik.http.routers.iptv-proxy.entrypoints=websecure"
-      - "traefik.http.routers.iptv-proxy.tls.certresolver=mydnschallenge"
-      - "traefik.http.services.iptv-proxy.loadbalancer.server.port=8080"
+    volumes:
+      - ../data:/data
     environment:
-      M3U_URL: /root/iptv/iptv.m3u
+      M3U_URL: "http://example.com/get.php?username=USER&password=PASS&type=m3u_plus&output=m3u8"
       PORT: 8080
       ADVERTISED_PORT: 443
       HOSTNAME: iptv.proxyexample.xyz
-      GIN_MODE: release
-      HTTPS: 1
-      XTREAM_USER: xtream_user
-      XTREAM_PASSWORD: xtream_password
-      XTREAM_BASE_URL: "http://example.tv:1234"
-      USER: test
-      PASSWORD: testpassword
+      HTTPS: "1"
+      USER: myuser
+      PASSWORD: mypass
+      JSON_FOLDER: /data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.iptv-proxy2.rule=Host(`iptv.proxyexample.xyz`)"
+      - "traefik.http.routers.iptv-proxy2.entrypoints=websecure"
+      - "traefik.http.routers.iptv-proxy2.tls.certresolver=mydnschallenge"
+      - "traefik.http.services.iptv-proxy2.loadbalancer.server.port=8080"
 
   traefik:
-    restart: always
     image: traefik:v2.4
+    restart: always
     read_only: true
     ports:
       - "80:80"
