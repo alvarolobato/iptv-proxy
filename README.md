@@ -33,59 +33,76 @@ It supports **M3U/M3U8** (plain playlists) and full **Xtream Codes** (live, VOD,
 
 ---
 
-## Quick start
+## Install and run
 
-### Docker (recommended)
+### Docker Compose (recommended)
 
-**Option A — Docker Compose (good for a persistent setup)**
-
-1. Clone the repo and go to its directory:
-   ```bash
-   git clone https://github.com/alvarolobato/iptv-proxy.git
-   cd iptv-proxy
-   ```
-2. Edit `docker-compose.yml`: set `M3U_URL` (or use a local file in `./iptv/`), `HOSTNAME`, `USER`, `PASSWORD`, and optionally Xtream vars (`XTREAM_USER`, `XTREAM_PASSWORD`, `XTREAM_BASE_URL`).
-3. Start:
-   ```bash
-   docker-compose up -d
-   ```
-4. Open `http://<HOSTNAME>:8080/iptv.m3u?username=<USER>&password=<PASSWORD>` (or the port you mapped).
-
-**Option B — Single `docker run`**
+No need to clone the repo. Download the Compose file, edit it, and start:
 
 ```bash
+curl -sSL -o docker-compose.yml https://raw.githubusercontent.com/alvarolobato/iptv-proxy/master/docker-compose.yml
+```
+
+Edit `docker-compose.yml` and set at least:
+
+| Variable | What to set |
+|----------|-------------|
+| `M3U_URL` | Your provider’s M3U URL (e.g. `http://provider.com/get.php?username=USER&password=PASS&type=m3u_plus&output=m3u8`) or path to a local file (e.g. `./iptv/playlist.m3u`). |
+| `HOSTNAME` | Hostname or IP used in generated URLs (e.g. `localhost` or your server’s public hostname). |
+| `USER` | Username for proxy auth (playlist and streams). |
+| `PASSWORD` | Password for proxy auth. |
+
+Optional (Xtream proxy): `XTREAM_USER`, `XTREAM_PASSWORD`, `XTREAM_BASE_URL`.
+
+The Compose file already mounts `./data:/data` and sets `JSON_FOLDER: /data` so you can put `replacements.json` in `./data` for name/group rewriting.
+
+Then start:
+
+```bash
+docker-compose up -d
+```
+
+Playlist URL: `http://<HOSTNAME>:8080/iptv.m3u?username=<USER>&password=<PASSWORD>`.
+
+---
+
+### Docker run (single container)
+
+Use a volume for data (e.g. `replacements.json`) and set `JSON_FOLDER`:
+
+```bash
+mkdir -p ./data
 docker run -d \
   --name iptv-proxy \
   -p 8080:8080 \
+  -v "$(pwd)/data:/data" \
   -e M3U_URL="http://your-provider.com/get.php?username=user&password=pass&type=m3u_plus&output=m3u8" \
   -e HOSTNAME=localhost \
   -e USER=myuser \
   -e PASSWORD=mypass \
-  alvarolobato/iptv-proxy:latest
+  -e JSON_FOLDER=/data \
+  alobato/iptv-proxy2:latest
 ```
 
-If you don’t have a pre-built image, build and run from the repo root:
-
-```bash
-docker build -t iptv-proxy .
-docker run -d --name iptv-proxy -p 8080:8080 \
-  -e M3U_URL="http://..." -e HOSTNAME=localhost -e USER=myuser -e PASSWORD=mypass \
-  iptv-proxy
-```
+(If you don’t have a pre-built image, build from a clone: `docker build -t iptv-proxy2 .` and use that image name.)
 
 ---
 
 ### Binary (from release)
 
-1. Download the latest [release](https://github.com/alvarolobato/iptv-proxy/releases) for your OS/arch (e.g. `iptv-proxy_linux_amd64.tar.gz`).
-2. Unpack and run, for example:
+1. Download the latest [release](https://github.com/alvarolobato/iptv-proxy/releases) for your OS/arch (e.g. `iptv-proxy_linux_amd64.tar.gz`), unpack it.
+2. Create a data directory and run (use it for `replacements.json` and optional cache):
+
    ```bash
+   mkdir -p ./data
    ./iptv-proxy --m3u-url "http://provider.com/get.php?username=u&password=p&type=m3u_plus&output=m3u8" \
-     --port 8080 --hostname localhost --user myuser --password mypass
+     --port 8080 --hostname localhost --user myuser --password mypass \
+     --json-folder ./data
    ```
+
 3. Playlist URL: `http://localhost:8080/iptv.m3u?username=myuser&password=mypass`.
 
-**Building from source:** `go install` in the repo root (requires Go 1.17+). You can also use a config file (e.g. `~/.iptv-proxy.yaml`) or environment variables; see [Configuration](#configuration).
+**Building from source:** `go install` in the repo root (Go 1.17+). Config file and env vars: see [Configuration](#configuration).
 
 ---
 
@@ -95,33 +112,33 @@ All options can be set via **command-line flags**, a **config file** (`~/.iptv-p
 
 ### Main options (summary)
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--iptv-proxy-config` | — | Config file path (default: `$HOME/.iptv-proxy.yaml`). |
-| `--m3u-url`, `-u` | — | M3U URL or path (required for M3U). For Xtream, often a get.php URL. |
-| `--m3u-file-name` | `iptv.m3u` | Proxified playlist filename. |
-| `--custom-endpoint` | — | Path prefix for M3U (e.g. `api` → `…/api/iptv.m3u`). |
-| `--custom-id` | — | Anti-collision path for track URLs. |
-| `--port` | 8080 | Listen port. |
-| `--advertised-port` | 0 (= port) | Port in generated URLs (e.g. 443 behind reverse proxy). |
-| `--hostname` | — | Hostname or IP in generated URLs. |
-| `--https` | false | Use `https` in generated URLs. |
-| `--user` | usertest | Proxy auth username. |
-| `--password` | passwordtest | Proxy auth password. |
-| `--xtream-user` | — | Xtream provider username (can be inferred from get.php URL). |
-| `--xtream-password` | — | Xtream provider password. |
-| `--xtream-base-url` | — | Xtream provider base URL. |
-| `--xtream-api-get` | false | Serve get.php from Xtream API. |
-| `--m3u-cache-expiration` | 1 | M3U cache TTL (hours). |
-| `--xmltv-cache-ttl` | — | XMLTV cache TTL (e.g. `1h`, `30m`). Empty = no cache. |
-| `--xmltv-cache-max-entries` | 100 | Max cached XMLTV responses. |
-| `--group-regex` | — | Include only tracks whose `group-title` matches this regex. |
-| `--channel-regex` | — | Include only tracks whose channel name matches this regex. |
-| `--json-folder` | — | Folder containing `replacements.json` (see [Replacements](docs/replacements.md)). |
-| `--divide-by-res` | false | Add resolution suffix to groups (FHD/HD/SD). |
-| `--debug-logging` | false | Verbose debug logs. |
-| `--cache-folder` | — | Folder for saving provider responses (debug). |
-| `--use-xtream-advanced-parsing` | false | Alternate Xtream parsing for some providers. |
+| Flag | Required? | Default | Description |
+|------|------------|---------|-------------|
+| `--iptv-proxy-config` | No | — | Config file path (default: `$HOME/.iptv-proxy.yaml`). |
+| `--m3u-url`, `-u` | Yes (M3U) | — | M3U URL or path. For Xtream, often a get.php URL. |
+| `--m3u-file-name` | No | `iptv.m3u` | Proxified playlist filename. |
+| `--custom-endpoint` | No | — | Path prefix for M3U (e.g. `api` → `…/api/iptv.m3u`). |
+| `--custom-id` | No | — | Anti-collision path for track URLs. |
+| `--port` | No | 8080 | Listen port. |
+| `--advertised-port` | No | 0 (= port) | Port in generated URLs (e.g. 443 behind reverse proxy). |
+| `--hostname` | No* | — | Hostname or IP in generated URLs. *Set for correct playlist URLs. |
+| `--https` | No | false | Use `https` in generated URLs. |
+| `--user` | No | usertest | Proxy auth username. |
+| `--password` | No | passwordtest | Proxy auth password. |
+| `--xtream-user` | Yes (Xtream) | — | Xtream provider username (can be inferred from get.php URL). |
+| `--xtream-password` | Yes (Xtream) | — | Xtream provider password. |
+| `--xtream-base-url` | Yes (Xtream) | — | Xtream provider base URL. |
+| `--xtream-api-get` | No | false | Serve get.php from Xtream API. |
+| `--m3u-cache-expiration` | No | 1 | M3U cache TTL (hours). |
+| `--xmltv-cache-ttl` | No | — | XMLTV cache TTL (e.g. `1h`, `30m`). Empty = no cache. |
+| `--xmltv-cache-max-entries` | No | 100 | Max cached XMLTV responses. |
+| `--group-regex` | No | — | Include only tracks whose `group-title` matches this regex. |
+| `--channel-regex` | No | — | Include only tracks whose channel name matches this regex. |
+| `--json-folder` | No | — | Folder for `replacements.json` (see [Replacements](docs/replacements.md)). |
+| `--divide-by-res` | No | false | Add resolution suffix to groups (FHD/HD/SD). |
+| `--debug-logging` | No | false | Verbose debug logs. |
+| `--cache-folder` | No | — | Folder for saving provider responses (debug). |
+| `--use-xtream-advanced-parsing` | No | false | Alternate Xtream parsing for some providers. |
 
 Full reference and examples: **[docs/configuration.md](docs/configuration.md)**.
 
@@ -143,6 +160,7 @@ To serve over HTTPS, run IPTV-Proxy behind a reverse proxy (e.g. Traefik). Set `
 | [docs/configuration.md](docs/configuration.md) | Full configuration reference and config file example. |
 | [docs/replacements.md](docs/replacements.md) | M3U name/group replacement rules (`replacements.json`). |
 | [docs/traefik.md](docs/traefik.md) | TLS/HTTPS with Traefik. |
+| [docs/release.md](docs/release.md) | How to create a release and build binaries. |
 
 ---
 
