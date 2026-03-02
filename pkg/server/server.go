@@ -115,14 +115,14 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 		var err error
 		reGroup, err = regexp.Compile(c.GroupRegex)
 		if err != nil {
-			log.Printf("invalid group regex %q: %v; grouping by regex disabled for this playlist", c.GroupRegex, err)
+			log.Printf("[iptv-proxy] Invalid group-regex, disabling filter: %v", err)
 		}
 	}
 	if c.ChannelRegex != "" {
 		var err error
 		reChannel, err = regexp.Compile(c.ChannelRegex)
 		if err != nil {
-			log.Printf("invalid channel regex %q: %v; channel filtering by regex disabled for this playlist", c.ChannelRegex, err)
+			log.Printf("[iptv-proxy] Invalid channel-regex, disabling filter: %v", err)
 		}
 	}
 
@@ -155,16 +155,19 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 		track.Name = applyReplacements(replacements.Global, track.Name)
 		track.Name = applyReplacements(replacements.Names, track.Name)
 
-		isFHD, isHD, isSD := false, false, false
+		// Derive resolution from track.Name and then from tvg-name tag
+		isFHD := reFHD.MatchString(track.Name)
+		isHD := reHD.MatchString(track.Name)
+		isSD := reSD.MatchString(track.Name)
 		for j := range track.Tags {
 			tag := &track.Tags[j]
 			tag.Value = applyReplacements(replacements.Global, tag.Value)
 			switch tag.Name {
 			case "tvg-name":
 				if c.DivideByRes {
-					isFHD = reFHD.MatchString(tag.Value) || reFHD.MatchString(track.Name)
-					isHD = reHD.MatchString(tag.Value) || reHD.MatchString(track.Name)
-					isSD = reSD.MatchString(tag.Value) || reSD.MatchString(track.Name)
+					isFHD = isFHD || reFHD.MatchString(tag.Value)
+					isHD = isHD || reHD.MatchString(tag.Value)
+					isSD = isSD || reSD.MatchString(tag.Value)
 					if !isFHD && !isHD && !isSD {
 						isHD = true
 					}
@@ -196,17 +199,14 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 		}
 	}
 
-	// Filter by channel and group regex
-	for i := len(tracks) - 1; i >= 0; i-- {
-		track := tracks[i]
+	// Filter by channel and group regex (single pass, new slice)
+	kept := make([]m3u.Track, 0, len(tracks))
+	for _, track := range tracks {
 		if reChannel != nil && !reChannel.MatchString(track.Name) {
-			tracks = append(tracks[:i], tracks[i+1:]...)
 			continue
 		}
-		groupMatch := false
-		if reGroup == nil {
-			groupMatch = true
-		} else {
+		groupMatch := reGroup == nil
+		if reGroup != nil {
 			for _, t := range track.Tags {
 				if t.Name == "group-title" && reGroup.MatchString(t.Value) {
 					groupMatch = true
@@ -214,10 +214,11 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 				}
 			}
 		}
-		if !groupMatch {
-			tracks = append(tracks[:i], tracks[i+1:]...)
+		if groupMatch {
+			kept = append(kept, track)
 		}
 	}
+	tracks = kept
 
 	ret := 0
 	into.WriteString("#EXTM3U\n") // nolint: errcheck
