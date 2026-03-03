@@ -128,36 +128,12 @@ func (c *Config) runUIServer() {
 	}
 }
 
-// groupWithCount is returned by groupsWithCounts for the UI (raw, legacy).
-type groupWithCount struct {
-	Name         string `json:"name"`
-	ChannelCount int    `json:"channel_count"`
-}
-
 // groupWithCountProcessed is returned by groupsProcessed: display name after replacements, excluded flag, replaced flag.
 type groupWithCountProcessed struct {
 	Name         string `json:"name"`
 	ChannelCount int    `json:"channel_count"`
 	Excluded     bool   `json:"excluded"`
 	Replaced     bool   `json:"replaced"`
-}
-
-func (c *Config) groupsWithCounts() []groupWithCount {
-	counts := make(map[string]int)
-	for _, track := range c.playlist.Tracks {
-		for _, tag := range track.Tags {
-			if tag.Name == "group-title" && tag.Value != "" {
-				counts[tag.Value]++
-				break
-			}
-		}
-	}
-	out := make([]groupWithCount, 0, len(counts))
-	for name, n := range counts {
-		out = append(out, groupWithCount{Name: name, ChannelCount: n})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
 }
 
 func (c *Config) groupsProcessed() []groupWithCountProcessed {
@@ -212,14 +188,6 @@ func (c *Config) groupsProcessed() []groupWithCountProcessed {
 	return out
 }
 
-type channelRow struct {
-	Name     string `json:"name"`
-	Group    string `json:"group"`
-	TvgID    string `json:"tvg_id"`
-	TvgName  string `json:"tvg_name"`
-	TvgLogo  string `json:"tvg_logo"`
-}
-
 // channelTypeFromURI returns the first path segment of the track URI (e.g. "live", "series", "movies").
 // Used for type filter in the UI. Defaults to "live" if unparseable.
 func channelTypeFromURI(uri string) string {
@@ -257,27 +225,6 @@ type channelRowProcessed struct {
 	NameReplaced  bool   `json:"name_replaced"`
 	GroupReplaced bool   `json:"group_replaced"`
 	StreamURL     string `json:"stream_url,omitempty"` // proxified stream URL (only for included tracks in M3U mode)
-}
-
-func (c *Config) channelsFromPlaylist() []channelRow {
-	out := make([]channelRow, 0, len(c.playlist.Tracks))
-	for _, track := range c.playlist.Tracks {
-		row := channelRow{Name: track.Name}
-		for _, tag := range track.Tags {
-			switch tag.Name {
-			case "group-title":
-				row.Group = tag.Value
-			case "tvg-id":
-				row.TvgID = tag.Value
-			case "tvg-name":
-				row.TvgName = tag.Value
-			case "tvg-logo":
-				row.TvgLogo = tag.Value
-			}
-		}
-		out = append(out, row)
-	}
-	return out
 }
 
 func (c *Config) channelsProcessed() []channelRowProcessed {
