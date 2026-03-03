@@ -79,6 +79,7 @@ function ToastList({ toasts }) {
 
 const headerTitle = (
   <Link to="/" style={{ color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+    <img src="/logo-128.png" alt="" width={32} height={32} style={{ display: 'block' }} />
     <span>IPTV-Proxy configuration</span>
   </Link>
 );
