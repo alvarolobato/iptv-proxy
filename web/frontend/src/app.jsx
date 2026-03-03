@@ -13,7 +13,6 @@ import {
   EuiFlexItem,
   EuiFormRow,
   EuiIcon,
-  EuiLink,
   EuiPageTemplate,
   EuiPanel,
   EuiSelect,
@@ -1374,7 +1373,7 @@ function ProcessingTab({ prepopulate, onClearPrepopulate, addToast, onSettingsSa
           <br />
           <strong>2. Exclusions</strong> — Remove tracks whose group or channel name matches any exclusion pattern.
           <br />
-          <strong>3. Replacements</strong> — Apply regex replace rules: global (names + groups), then names only, then groups only. Changes apply immediately.
+          <strong>3. Replacements</strong> — Apply regex replace rules: global (names + groups), then names only, then groups only. Changes apply to the running proxy immediately (no restart needed).
         </p>
       </EuiPanel>
       <EuiSpacer size="l" />
