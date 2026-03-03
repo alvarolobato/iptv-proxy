@@ -18,6 +18,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"github.com/alvarolobato/iptv-proxy/pkg/config"
 )
 
 // Replacements holds compiled regex replacement rules for M3U channel names and group titles.
@@ -58,35 +60,28 @@ func compileReplacementSlice(rules []Replacement) []CompiledReplacement {
 	return out
 }
 
-// EnsureStubReplacements creates an empty replacements.json with all sections if the file does not exist.
-// dir is the JSON folder (e.g. from --json-folder). No-op if dir is empty.
-func EnsureStubReplacements(dir string) {
-	if dir == "" {
-		return
+// ReplacementsFromSettings compiles Replacements from the settings file's replacement section (replaces standalone replacements.json).
+func ReplacementsFromSettings(s *config.ReplacementsInSettings) Replacements {
+	if s == nil {
+		return Replacements{}
 	}
-	path := filepath.Join(dir, "replacements.json")
-	if _, err := os.Stat(path); err == nil {
-		return
+	toReplacement := func(rules []config.ReplacementRule) []Replacement {
+		out := make([]Replacement, 0, len(rules))
+		for _, r := range rules {
+			out = append(out, Replacement{Replace: r.Replace, With: r.With})
+		}
+		return out
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		log.Printf("[iptv-proxy] Could not create JSON folder %s: %v", dir, err)
-		return
+	raw := replacementsJSON{
+		Global: toReplacement(s.Global),
+		Names:  toReplacement(s.Names),
+		Groups: toReplacement(s.Groups),
 	}
-	stub := replacementsJSON{
-		Global: []Replacement{},
-		Names:  []Replacement{},
-		Groups: []Replacement{},
+	return Replacements{
+		Global: compileReplacementSlice(raw.Global),
+		Names:  compileReplacementSlice(raw.Names),
+		Groups: compileReplacementSlice(raw.Groups),
 	}
-	data, err := json.MarshalIndent(stub, "", "  ")
-	if err != nil {
-		log.Printf("[iptv-proxy] Could not marshal stub replacements: %v", err)
-		return
-	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		log.Printf("[iptv-proxy] Could not write stub %s: %v", path, err)
-		return
-	}
-	log.Printf("[iptv-proxy] Created stub %s", path)
 }
 
 func loadReplacements(filename string) Replacements {

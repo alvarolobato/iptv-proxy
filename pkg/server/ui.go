@@ -291,7 +291,16 @@ func (c *Config) channelsProcessed() []channelRowProcessed {
 	if len(tracksForAPI) == 0 {
 		tracksForAPI = c.playlist.Tracks
 	}
-	xtream := c.ProxyConfig.XtreamBaseURL != ""
+
+	// URI->index for stream URLs (set in marshallInto; fallback from current playlist if nil so API always has data).
+	uriToIndex := c.trackIndexInPlaylist
+	if uriToIndex == nil && c.playlist != nil && len(c.playlist.Tracks) > 0 {
+		uriToIndex = make(map[string]int)
+		for idx, t := range c.playlist.Tracks {
+			uriToIndex[t.URI] = idx
+		}
+	}
+
 	out := make([]channelRowProcessed, 0, len(tracksForAPI))
 	for _, track := range tracksForAPI {
 		rawGroup := getGroupTitle(track)
@@ -306,13 +315,10 @@ func (c *Config) channelsProcessed() []channelRowProcessed {
 		channelType := channelTypeFromURI(track.URI)
 
 		streamURL := ""
-		if !xtream && !excluded && c.playlist != nil {
-			for idx, t := range c.playlist.Tracks {
-				if t.Name == track.Name && t.URI == track.URI {
-					if u, err := c.replaceURL(track.URI, idx, false); err == nil {
-						streamURL = u
-					}
-					break
+		if uriToIndex != nil {
+			if idx, ok := uriToIndex[track.URI]; ok {
+				if u, err := c.replaceURL(track.URI, idx, false); err == nil {
+					streamURL = u
 				}
 			}
 		}

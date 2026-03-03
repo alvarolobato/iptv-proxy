@@ -29,23 +29,45 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/gin-contrib/cors"
 	"github.com/jamesnetherton/m3u"
 	"github.com/alvarolobato/iptv-proxy/pkg/config"
 	uuid "github.com/satori/go.uuid"
-
-	"github.com/gin-gonic/gin"
 )
 
 var defaultProxyfiedM3UPath = filepath.Join(os.TempDir(), uuid.NewV4().String()+".iptv-proxy.m3u")
 var endpointAntiColision = strings.Split(uuid.NewV4().String(), "-")[0]
 
+// pathAuthUser returns the path segment for proxy user (use "-" when empty to avoid route conflicts).
+func (c *Config) pathAuthUser() string {
+	if s := c.User.String(); s != "" {
+		return s
+	}
+	return "-"
+}
+
+// pathAuthPassword returns the path segment for proxy password (use "-" when empty to avoid route conflicts).
+func (c *Config) pathAuthPassword() string {
+	if s := c.Password.String(); s != "" {
+		return s
+	}
+	return "-"
+}
+
 // Config represent the server configuration
 type Config struct {
 	*config.ProxyConfig
 
+	// settings is the loaded settings.json (nil if not used). Used for replacements and GET/PUT /api/settings.
+	settings *config.SettingsJSON
+	// defaultSettings is the config from flag/env before settings were applied; used to persist only overrides to settings.json.
+	defaultSettings *config.SettingsJSON
+
 	// M3U service part
 	playlist *m3u.Playlist
+	// fullPlaylistTracks is a copy of the initial fetch; used by UI API so /api/groups and /api/channels can return all items with excluded flag.
+	fullPlaylistTracks []m3u.Track
+	// trackIndexInPlaylist maps upstream track URI -> index in filtered playlist; used to build proxified URL when needed.
+	trackIndexInPlaylist map[string]int
 	// this variable is set only for m3u proxy endpoints
 	track *m3u.Track
 	// path to the proxyfied m3u file
@@ -56,52 +78,41 @@ type Config struct {
 	xmltvCache *responseCache
 }
 
-// NewServer initialize a new server configuration
-func NewServer(config *config.ProxyConfig) (*Config, error) {
+// NewServer initialize a new server configuration. settings is optional (from settings.json); when set, replacements come from it.
+// defaultSettings is the config from flag/env before ApplyTo (used to write only overrides to settings.json); may be nil.
+func NewServer(proxyConfig *config.ProxyConfig, settings *config.SettingsJSON, defaultSettings *config.SettingsJSON) (*Config, error) {
 	var p m3u.Playlist
-	if config.RemoteURL.String() != "" {
+	if proxyConfig.RemoteURL != nil && proxyConfig.RemoteURL.String() != "" {
 		var err error
-		p, err = m3u.Parse(config.RemoteURL.String())
+		p, err = m3u.Parse(proxyConfig.RemoteURL.String())
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	if trimmedCustomId := strings.Trim(config.CustomId, "/"); trimmedCustomId != "" {
+	if trimmedCustomId := strings.Trim(proxyConfig.CustomId, "/"); trimmedCustomId != "" {
 		endpointAntiColision = trimmedCustomId
 	}
 
+	fullTracks := make([]m3u.Track, len(p.Tracks))
+	copy(fullTracks, p.Tracks)
 	cfg := &Config{
-		ProxyConfig:          config,
+		ProxyConfig:          proxyConfig,
+		settings:             settings,
+		defaultSettings:      defaultSettings,
 		playlist:             &p,
+		fullPlaylistTracks:   fullTracks,
 		track:                nil,
 		proxyfiedM3UPath:     defaultProxyfiedM3UPath,
 		endpointAntiColision: endpointAntiColision,
 	}
-	cfg.xmltvCache = newResponseCache(config.XMLTVCacheTTL, config.XMLTVCacheMaxEntries)
+	cfg.xmltvCache = newResponseCache(proxyConfig.XMLTVCacheTTL, proxyConfig.XMLTVCacheMaxEntries)
 	return cfg, nil
 }
 
-// Serve the iptv-proxy api
+// Serve runs the server (with minimal startup log). For full startup summary use ServeWithContext.
 func (c *Config) Serve() error {
-	EnsureStubReplacements(c.JSONFolder)
-	if err := c.playlistInitialization(); err != nil {
-		return err
-	}
-
-	if c.UIPort > 0 {
-		go c.runUIServer()
-	}
-
-	router := gin.Default()
-	router.Use(cors.Default())
-	group := router.Group("/")
-	c.routes(group)
-
-	// Log after Run would require refactoring (Run blocks). Indicate we are about to listen.
-	log.Printf("[iptv-proxy] Server starting, binding to :%d", c.HostConfig.Port)
-
-	return router.Run(fmt.Sprintf(":%d", c.HostConfig.Port))
+	return c.ServeWithContext(nil)
 }
 
 func (c *Config) playlistInitialization() error {
@@ -120,22 +131,25 @@ func (c *Config) playlistInitialization() error {
 
 // marshallInto writes the playlist to a file, applying optional filter, replacement, and resolution grouping.
 func (c *Config) marshallInto(into *os.File, xtream bool) error {
+	if !xtream {
+		c.trackIndexInPlaylist = make(map[string]int)
+	}
 	filteredTrack := make([]m3u.Track, 0, len(c.playlist.Tracks))
 
-	var reGroup, reChannel *regexp.Regexp
-	if c.GroupRegex != "" {
-		var err error
-		reGroup, err = regexp.Compile(c.GroupRegex)
-		if err != nil {
-			log.Printf("[iptv-proxy] Invalid group-regex, disabling filter: %v", err)
+	// Compile inclusion/exclusion regex lists (from settings only)
+	groupInclRE := compileRegexList(c.GroupInclusions, "group_inclusions")
+	groupExclRE := compileRegexList(c.GroupExclusions, "group_exclusions")
+	channelInclRE := compileRegexList(c.ChannelInclusions, "channel_inclusions")
+	channelExclRE := compileRegexList(c.ChannelExclusions, "channel_exclusions")
+
+	tracks := make([]m3u.Track, 0, len(c.playlist.Tracks))
+	for _, track := range c.playlist.Tracks {
+		group := getGroupTitle(track)
+		name := track.Name
+		if !matchInclusionExclusion(group, name, groupInclRE, groupExclRE, channelInclRE, channelExclRE) {
+			continue
 		}
-	}
-	if c.ChannelRegex != "" {
-		var err error
-		reChannel, err = regexp.Compile(c.ChannelRegex)
-		if err != nil {
-			log.Printf("[iptv-proxy] Invalid channel-regex, disabling filter: %v", err)
-		}
+		tracks = append(tracks, track)
 	}
 
 	reFHD := regexp.MustCompile(`\sFHD$`)
@@ -143,12 +157,11 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 	reSD := regexp.MustCompile(`\sSD$`)
 
 	var replacements Replacements
-	if c.JSONFolder != "" {
-		replacements = loadReplacements(filepath.Join(c.JSONFolder, "replacements.json"))
+	if c.settings != nil && c.settings.Replacements != nil {
+		replacements = ReplacementsFromSettings(c.settings.Replacements)
+	} else if c.DataFolder != "" {
+		replacements = loadReplacements(filepath.Join(c.DataFolder, "replacements.json"))
 	}
-
-	tracks := make([]m3u.Track, len(c.playlist.Tracks))
-	copy(tracks, c.playlist.Tracks)
 
 	for i := range tracks {
 		track := &tracks[i]
@@ -211,27 +224,6 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 		}
 	}
 
-	// Filter by channel and group regex (single pass, new slice)
-	kept := make([]m3u.Track, 0, len(tracks))
-	for _, track := range tracks {
-		if reChannel != nil && !reChannel.MatchString(track.Name) {
-			continue
-		}
-		groupMatch := reGroup == nil
-		if reGroup != nil {
-			for _, t := range track.Tags {
-				if t.Name == "group-title" && reGroup.MatchString(t.Value) {
-					groupMatch = true
-					break
-				}
-			}
-		}
-		if groupMatch {
-			kept = append(kept, track)
-		}
-	}
-	tracks = kept
-
 	ret := 0
 	into.WriteString("#EXTM3U\n") // nolint: errcheck
 	for i, track := range tracks {
@@ -260,6 +252,9 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 			log.Printf("ERROR: track: %s: %s", track.Name, err)
 			continue
 		}
+		if !xtream && c.trackIndexInPlaylist != nil {
+			c.trackIndexInPlaylist[track.URI] = i - ret
+		}
 
 		displayName := track.Name
 		if track.Name == "dpr_auto" || track.Name == "h_256" || strings.Contains(track.Name, "320\"") {
@@ -268,6 +263,11 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 		into.WriteString(fmt.Sprintf("%s, %s\n%s\n", buffer.String(), displayName, uri)) // nolint: errcheck
 
 		filteredTrack = append(filteredTrack, track)
+	}
+	// Avoid clearing the playlist when filters would remove everything (e.g. bad/misapplied settings in e2e)
+	if len(filteredTrack) == 0 && len(c.playlist.Tracks) > 0 {
+		log.Printf("[iptv-proxy] WARN: filters would remove all tracks; keeping current playlist")
+		return into.Sync()
 	}
 	c.playlist.Tracks = filteredTrack
 
@@ -293,10 +293,10 @@ func (c *Config) replaceURL(uri string, trackIndex int, xtream bool) (string, er
 
 	uriPath := oriURL.EscapedPath()
 	if xtream {
-		uriPath = strings.ReplaceAll(uriPath, c.XtreamUser.PathEscape(), c.User.PathEscape())
-		uriPath = strings.ReplaceAll(uriPath, c.XtreamPassword.PathEscape(), c.Password.PathEscape())
+		uriPath = strings.ReplaceAll(uriPath, c.XtreamUser.PathEscape(), url.PathEscape(c.pathAuthUser()))
+		uriPath = strings.ReplaceAll(uriPath, c.XtreamPassword.PathEscape(), url.PathEscape(c.pathAuthPassword()))
 	} else {
-		uriPath = path.Join("/", c.endpointAntiColision, c.User.PathEscape(), c.Password.PathEscape(), fmt.Sprintf("%d", trackIndex), path.Base(uriPath))
+		uriPath = path.Join("/", c.endpointAntiColision, c.pathAuthUser(), c.pathAuthPassword(), fmt.Sprintf("%d", trackIndex), path.Base(uriPath))
 	}
 
 	basicAuth := oriURL.User.String()
@@ -304,12 +304,21 @@ func (c *Config) replaceURL(uri string, trackIndex int, xtream bool) (string, er
 		basicAuth += "@"
 	}
 
+	hostname := "localhost"
+	if c.HostConfig != nil && c.HostConfig.Hostname != "" {
+		hostname = c.HostConfig.Hostname
+	}
+	port := c.AdvertisedPort
+	if port == 0 && c.HostConfig != nil {
+		port = c.HostConfig.Port
+	}
+
 	newURI := fmt.Sprintf(
 		"%s://%s%s:%d%s%s",
 		protocol,
 		basicAuth,
-		c.HostConfig.Hostname,
-		c.AdvertisedPort,
+		hostname,
+		port,
 		customEnd,
 		uriPath,
 	)
@@ -320,4 +329,56 @@ func (c *Config) replaceURL(uri string, trackIndex int, xtream bool) (string, er
 	}
 
 	return newURL.String(), nil
+}
+
+// compileRegexList compiles each pattern; invalid patterns are logged and skipped.
+func compileRegexList(patterns []string, label string) []*regexp.Regexp {
+	var out []*regexp.Regexp
+	for _, p := range patterns {
+		if p == "" {
+			continue
+		}
+		re, err := regexp.Compile(p)
+		if err != nil {
+			log.Printf("[iptv-proxy] Invalid %s pattern %q: %v", label, p, err)
+			continue
+		}
+		out = append(out, re)
+	}
+	return out
+}
+
+func getGroupTitle(track m3u.Track) string {
+	for _, t := range track.Tags {
+		if t.Name == "group-title" {
+			return t.Value
+		}
+	}
+	return ""
+}
+
+// matchInclusionExclusion returns true if the track should be kept.
+// Empty inclusion list = allow all; empty exclusion list = exclude none.
+func matchInclusionExclusion(group, channelName string, groupIncl, groupExcl, channelIncl, channelExcl []*regexp.Regexp) bool {
+	matchAny := func(s string, list []*regexp.Regexp) bool {
+		for _, re := range list {
+			if re.MatchString(s) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(groupIncl) > 0 && !matchAny(group, groupIncl) {
+		return false
+	}
+	if len(groupExcl) > 0 && matchAny(group, groupExcl) {
+		return false
+	}
+	if len(channelIncl) > 0 && !matchAny(channelName, channelIncl) {
+		return false
+	}
+	if len(channelExcl) > 0 && matchAny(channelName, channelExcl) {
+		return false
+	}
+	return true
 }
