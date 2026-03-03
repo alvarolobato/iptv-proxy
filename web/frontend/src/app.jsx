@@ -218,6 +218,7 @@ function MainPage() {
     { id: 'groups', name: 'Groups' },
     { id: 'channels', name: 'Channels' },
     { id: 'processing', name: 'Processing' },
+    { id: 'watch', name: 'Watch' },
   ];
 
   const onGroupViewChannels = (groupName) => {
@@ -333,8 +334,275 @@ function MainPage() {
           onSettingsSaved={onSettingsSaved}
         />
       )}
+      {selectedTabId === 'watch' && <WatchTab addToast={addToast} />}
       <ToastList toasts={toasts} />
     </EuiPanel>
+  );
+}
+
+function copyToClipboard(text, addToast) {
+  const str = String(text);
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = str;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'absolute';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      addToast?.('Copied to clipboard');
+    } catch (e) {
+      addToast?.('Copy failed', 'danger');
+    }
+    document.body.removeChild(ta);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(str).then(() => addToast?.('Copied to clipboard'), fallback);
+  } else {
+    fallback();
+  }
+}
+
+function CopyableField({ label, value, addToast }) {
+  const copy = () => {
+    if (value == null || value === '') return;
+    copyToClipboard(value, addToast);
+  };
+  const displayValue = value != null && value !== '' ? value : '—';
+  const canCopy = value != null && value !== '';
+  return (
+    <EuiFormRow label={label} fullWidth>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 8,
+          padding: '8px 12px',
+          background: 'var(--euiColorEmptyShade)',
+          border: '1px solid var(--euiColorLightShade)',
+          borderRadius: 6,
+        }}
+      >
+        <EuiToolTip content="Copy to clipboard">
+          <EuiButtonIcon
+            iconType="copyClipboard"
+            aria-label="Copy"
+            onClick={copy}
+            isDisabled={!canCopy}
+            style={{ flexShrink: 0, marginTop: 2 }}
+          />
+        </EuiToolTip>
+        <span
+          style={{
+            fontFamily: 'monospace',
+            fontSize: 13,
+            wordBreak: 'break-all',
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          {displayValue}
+        </span>
+      </div>
+    </EuiFormRow>
+  );
+}
+
+function WatchTab({ addToast }) {
+  const [settings, setSettings] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetch('/api/settings', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
+      .then((data) => setSettings(data.effective ?? data))
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const watch = useMemo(() => {
+    if (!settings) return null;
+    const host = settings.hostname || 'localhost';
+    const port = Number(settings.advertised_port) || Number(settings.port) || 8080;
+    const scheme = settings.https ? 'https' : 'http';
+    const customEnd = (settings.custom_endpoint || '').trim().replace(/^\/+|\/+$/g, '');
+    const baseUrl = customEnd ? `${scheme}://${host}:${port}/${customEnd}` : `${scheme}://${host}:${port}`;
+    const user = settings.user || '';
+    const password = settings.password || '';
+    const m3uFileName = settings.m3u_file_name || 'iptv.m3u';
+    const isM3U = !!settings.m3u_url;
+    const isXtream = !!settings.xtream_base_url;
+
+    const m3uPlaylistUrl = isM3U
+      ? `${baseUrl}/${m3uFileName}?username=${encodeURIComponent(user)}&password=${encodeURIComponent(password)}`
+      : '';
+
+    const xtreamBase = isXtream ? baseUrl : '';
+    const xtreamGetPhp = isXtream ? `${baseUrl}/get.php?username=${encodeURIComponent(user)}&password=${encodeURIComponent(password)}` : '';
+    const xtreamPlayerApi = isXtream ? `${baseUrl}/player_api.php` : '';
+    const epgUrl = isXtream ? `${baseUrl}/xmltv.php?username=${encodeURIComponent(user)}&password=${encodeURIComponent(password)}` : '';
+
+    return {
+      baseUrl,
+      isM3U,
+      isXtream,
+      m3uPlaylistUrl,
+      xtreamBase,
+      xtreamGetPhp,
+      xtreamPlayerApi,
+      epgUrl,
+      user,
+      password,
+    };
+  }, [settings]);
+
+  if (loading) {
+    return <EuiCallOut title="Loading…" iconType="refresh" />;
+  }
+  if (error) {
+    return (
+      <EuiCallOut title="Error" color="danger" iconType="alert">
+        <p>{error}</p>
+      </EuiCallOut>
+    );
+  }
+  if (!watch) {
+    return null;
+  }
+
+  const copySection = (title, description, lines) => {
+    const block = [title, description, '', ...lines].join('\n');
+    copyToClipboard(block, addToast);
+  };
+
+  return (
+    <Fragment>
+      <p className="euiTextColor--subdued" style={{ marginBottom: 16 }}>
+        Use these URLs and credentials in your IPTV player (e.g. VLC, Kodi, TiviMate). Copy each value with the clipboard button, or copy a full section to share in a messaging app.
+      </p>
+
+      {watch.isM3U && (
+        <EuiPanel paddingSize="m" style={{ marginBottom: 16 }}>
+          <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" wrap>
+            <EuiFlexItem grow={false}>
+              <EuiTitle size="xs">
+                <h3 style={{ marginTop: 0 }}>M3U playlist</h3>
+              </EuiTitle>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButtonEmpty
+                size="xs"
+                iconType="copyClipboard"
+                onClick={() =>
+                  copySection(
+                    '--- M3U playlist (IPTV-Proxy) ---',
+                    'Use this URL in your player as the playlist / M3U URL.',
+                    [`Playlist URL: ${watch.m3uPlaylistUrl}`]
+                  )
+                }
+              >
+                Copy section to share
+              </EuiButtonEmpty>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+          <p className="euiTextColor--subdued" style={{ fontSize: 12, marginBottom: 12, marginTop: 4 }}>
+            Enter this URL in your player as the playlist / M3U URL.
+          </p>
+          <CopyableField label="Playlist URL" value={watch.m3uPlaylistUrl} addToast={addToast} />
+        </EuiPanel>
+      )}
+
+      {watch.isXtream && (
+        <EuiPanel paddingSize="m" style={{ marginBottom: 16 }}>
+          <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" wrap>
+            <EuiFlexItem grow={false}>
+              <EuiTitle size="xs">
+                <h3 style={{ marginTop: 0 }}>Xtream Codes</h3>
+              </EuiTitle>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButtonEmpty
+                size="xs"
+                iconType="copyClipboard"
+                onClick={() =>
+                  copySection(
+                    '--- Xtream Codes (IPTV-Proxy) ---',
+                    'Use in Xtream-compatible players (TiviMate, IPTV Smarters). Server URL = base; use username and password below.',
+                    [
+                      `Server URL: ${watch.xtreamBase}`,
+                      `get.php: ${watch.xtreamGetPhp}`,
+                      `player_api.php: ${watch.xtreamPlayerApi}`,
+                      `Username: ${watch.user}`,
+                      `Password: ${watch.password}`,
+                    ]
+                  )
+                }
+              >
+                Copy section to share
+              </EuiButtonEmpty>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+          <p className="euiTextColor--subdued" style={{ fontSize: 12, marginBottom: 12, marginTop: 4 }}>
+            Use these in Xtream-compatible players (TiviMate, IPTV Smarters, etc.). Server URL = base URL; username and password = proxy credentials.
+          </p>
+          <CopyableField label="Server URL (base)" value={watch.xtreamBase} addToast={addToast} />
+          <EuiSpacer size="s" />
+          <CopyableField label="get.php (playlist)" value={watch.xtreamGetPhp} addToast={addToast} />
+          <EuiSpacer size="s" />
+          <CopyableField label="player_api.php" value={watch.xtreamPlayerApi} addToast={addToast} />
+          <EuiSpacer size="s" />
+          <CopyableField label="Username" value={watch.user} addToast={addToast} />
+          <EuiSpacer size="s" />
+          <CopyableField label="Password" value={watch.password} addToast={addToast} />
+        </EuiPanel>
+      )}
+
+      <EuiPanel paddingSize="m">
+        <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" wrap>
+          <EuiFlexItem grow={false}>
+            <EuiTitle size="xs">
+              <h3 style={{ marginTop: 0 }}>EPG / XMLTV</h3>
+            </EuiTitle>
+          </EuiFlexItem>
+          {watch.isXtream && (
+            <EuiFlexItem grow={false}>
+              <EuiButtonEmpty
+                size="xs"
+                iconType="copyClipboard"
+                onClick={() =>
+                  copySection(
+                    '--- EPG / XMLTV (IPTV-Proxy) ---',
+                    'Use this URL in your player as the EPG / guide source.',
+                    [`EPG URL: ${watch.epgUrl}`]
+                  )
+                }
+              >
+                Copy section to share
+              </EuiButtonEmpty>
+            </EuiFlexItem>
+          )}
+        </EuiFlexGroup>
+        {watch.isXtream ? (
+          <Fragment>
+            <p className="euiTextColor--subdued" style={{ fontSize: 12, marginBottom: 12, marginTop: 4 }}>
+              Use this URL in your player as the EPG / guide source.
+            </p>
+            <CopyableField label="EPG URL" value={watch.epgUrl} addToast={addToast} />
+          </Fragment>
+        ) : (
+          <p className="euiTextColor--subdued" style={{ fontSize: 12, marginTop: 4 }}>
+            {watch.isM3U
+              ? 'EPG is not provided by the proxy in M3U mode. If your playlist includes tvg-url tags, your player may use those for the guide.'
+              : 'Configure an M3U URL or Xtream credentials to see player URLs here.'}
+          </p>
+        )}
+      </EuiPanel>
+    </Fragment>
   );
 }
 
@@ -835,17 +1103,34 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
         const streamUrl = row.stream_url;
         return (
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 0 }}>
-            {streamUrl && (
-              <EuiToolTip content="Open stream in new tab">
-                <EuiButtonEmpty iconType="play" size="xs" href={streamUrl} target="_blank" rel="noopener noreferrer" aria-label="Open stream" />
-              </EuiToolTip>
-            )}
             <EuiToolTip content="Add to inclusions">
               <EuiButtonEmpty iconType="plusInCircleFilled" size="xs" color="success" onClick={() => onAddToProcessing({ section: 'channel_inclusions', value: channelName })} aria-label="Add to inclusions" isDisabled={addInProgress} />
             </EuiToolTip>
             <EuiToolTip content="Add to exclusions">
               <EuiButtonEmpty iconType="minusInCircleFilled" size="xs" color="danger" onClick={() => onAddToProcessing({ section: 'channel_exclusions', value: channelName })} aria-label="Add to exclusions" isDisabled={addInProgress} />
             </EuiToolTip>
+            {streamUrl && (
+              <EuiToolTip content={streamUrl}>
+                <a
+                  href={streamUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open stream"
+                  data-testid="channel-open-stream"
+                  title={streamUrl}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    padding: '4px 6px',
+                    marginLeft: 2,
+                    color: 'var(--euiColorPrimary)',
+                    borderRadius: 4,
+                  }}
+                >
+                  <EuiIcon type="play" size="s" />
+                </a>
+              </EuiToolTip>
+            )}
           </div>
         );
       },
