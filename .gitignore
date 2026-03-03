@@ -23,6 +23,7 @@ iptv/iptv.m3u
 web/frontend/e2e/evidence/
 
 # Playwright and Node
+web/frontend/node_modules/
 web/frontend/playwright-report/
 web/frontend/test-results/
 web/frontend/e2e/screenshots/
