@@ -118,6 +118,21 @@ var rootCmd = &cobra.Command{
 			conf.AdvertisedPort = conf.HostConfig.Port
 		}
 
+		// When only Xtream credentials are set (no m3u-url), fetch M3U from get.php so the UI has groups/channels.
+		if (conf.RemoteURL == nil || conf.RemoteURL.String() == "") &&
+			conf.XtreamBaseURL != "" && conf.XtreamUser.String() != "" && conf.XtreamPassword.String() != "" {
+			base := strings.TrimSuffix(conf.XtreamBaseURL, "/")
+			m3uForUI := base + "/get.php?username=" + url.QueryEscape(conf.XtreamUser.String()) +
+				"&password=" + url.QueryEscape(conf.XtreamPassword.String()) + "&type=m3u_plus&output=mpegts"
+			u, err := url.Parse(m3uForUI)
+			if err != nil {
+				log.Printf("[iptv-proxy] WARN: could not build M3U URL for UI from Xtream config: %v", err)
+			} else {
+				conf.RemoteURL = u
+				log.Printf("[iptv-proxy] INFO: Using Xtream get.php as M3U source for configuration UI (groups/channels)")
+			}
+		}
+
 		defaultForSettings := config.CurrentFromProxyConfig(conf)
 
 		var settings *config.SettingsJSON
