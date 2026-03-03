@@ -194,6 +194,17 @@ test.describe('Data & processing', () => {
     expect(withIncluded.length).toBeGreaterThanOrEqual(1);
   });
 
+  test('Downloaded M3U has exclusions applied (devices get filtered list)', async ({ request }) => {
+    // E2E testdata has group_exclusions: ["^Group2$"]. Fixture test.m3u has 2 tracks: Group1, Group2.
+    // So the served M3U must have 1 track (Group2 excluded).
+    const m3uUrl = 'http://localhost:18080/iptv.m3u?username=usertest&password=passwordtest';
+    const res = await request.get(m3uUrl);
+    expect(res.ok()).toBeTruthy();
+    const body = await res.text();
+    const extinfCount = (body.match(/^#EXTINF:/gm) || []).length;
+    expect(extinfCount).toBe(1);
+  });
+
   test('Screenshot: Groups tab shows both Included and Excluded with Status column', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('tab', { name: 'Groups' }).click();
