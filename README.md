@@ -1,6 +1,6 @@
 # IPTV-Proxy
 
-<p align="center"><img src="images/logo-128.png" width="128" alt="IPTV-Proxy logo" /></p>
+<p align="center"><img src="images/logo-128.png" width="256" alt="IPTV-Proxy logo" /></p>
 
 [![CI](https://github.com/alvarolobato/iptv-proxy/workflows/CI/badge.svg)](https://github.com/alvarolobato/iptv-proxy/actions?query=workflow%3ACI)
 
