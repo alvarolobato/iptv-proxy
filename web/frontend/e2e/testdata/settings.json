@@ -1,0 +1,8 @@
+{
+  "user": "usertest",
+  "password": "passwordtest",
+  "group_exclusions": [
+    "^Group2$"
+  ],
+  "replacements": {}
+}

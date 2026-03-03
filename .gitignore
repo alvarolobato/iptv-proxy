@@ -16,4 +16,17 @@
 iptv-proxy
 iptv/iptv.m3u
 
+# Local env (credentials / m3u URL). Use .env.example as template; CI can use secrets.
+.env
+
+# E2E evidence output (screenshot + API dump)
+web/frontend/e2e/evidence/
+
+# Playwright and Node
+web/frontend/node_modules/
+web/frontend/playwright-report/
+web/frontend/test-results/
+web/frontend/e2e/screenshots/
+.DS_Store
+
 

@@ -64,6 +64,14 @@ See [replacements.md](replacements.md) for the replacements file format.
 
 ---
 
+## Configuration UI
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--ui-port` | 0 | Port for the configuration UI (0 = disabled). See [ui.md](ui.md). Requires `--json-folder`. |
+
+---
+
 ## Debug and advanced
 
 | Flag | Default | Description |

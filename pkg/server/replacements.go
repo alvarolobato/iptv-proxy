@@ -18,6 +18,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"github.com/alvarolobato/iptv-proxy/pkg/config"
 )
 
 // Replacements holds compiled regex replacement rules for M3U channel names and group titles.
@@ -56,6 +58,30 @@ func compileReplacementSlice(rules []Replacement) []CompiledReplacement {
 		out = append(out, CompiledReplacement{Re: re, With: r.With})
 	}
 	return out
+}
+
+// ReplacementsFromSettings compiles Replacements from the settings file's replacement section (replaces standalone replacements.json).
+func ReplacementsFromSettings(s *config.ReplacementsInSettings) Replacements {
+	if s == nil {
+		return Replacements{}
+	}
+	toReplacement := func(rules []config.ReplacementRule) []Replacement {
+		out := make([]Replacement, 0, len(rules))
+		for _, r := range rules {
+			out = append(out, Replacement{Replace: r.Replace, With: r.With})
+		}
+		return out
+	}
+	raw := replacementsJSON{
+		Global: toReplacement(s.Global),
+		Names:  toReplacement(s.Names),
+		Groups: toReplacement(s.Groups),
+	}
+	return Replacements{
+		Global: compileReplacementSlice(raw.Global),
+		Names:  compileReplacementSlice(raw.Names),
+		Groups: compileReplacementSlice(raw.Groups),
+	}
 }
 
 func loadReplacements(filename string) Replacements {

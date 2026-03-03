@@ -537,7 +537,7 @@ func (c *Config) hlsXtreamStream(ctx *gin.Context, oriURL *url.URL) {
 				return
 			}
 			body := string(b)
-			body = strings.ReplaceAll(body, "/"+c.XtreamUser.String()+"/"+c.XtreamPassword.String()+"/", "/"+c.User.String()+"/"+c.Password.String()+"/")
+			body = strings.ReplaceAll(body, "/"+c.XtreamUser.String()+"/"+c.XtreamPassword.String()+"/", "/"+c.pathAuthUser()+"/"+c.pathAuthPassword()+"/")
 
 			mergeHttpHeader(ctx.Writer.Header(), hlsResp.Header)
 

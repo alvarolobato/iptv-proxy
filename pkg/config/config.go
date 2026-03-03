@@ -59,10 +59,12 @@ type ProxyConfig struct {
 	AdvertisedPort       int
 	HTTPS                bool
 	User, Password       CredentialString
-	// M3U filter and replacement (optional)
-	GroupRegex   string // include only tracks whose group-title matches (empty = all)
-	ChannelRegex string // include only tracks whose name matches (empty = all)
-	JSONFolder   string // folder containing replacements.json for name/group replacement
+	// M3U filter (from settings.json only) and replacement
+	GroupInclusions    []string // keep only if group-title matches any (empty = all)
+	GroupExclusions    []string // drop if group-title matches any
+	ChannelInclusions  []string // keep only if channel name matches any (empty = all)
+	ChannelExclusions  []string // drop if channel name matches any
+	DataFolder         string   // folder for settings.json and replacement rules (--data-folder)
 	DivideByRes  bool   // divide groups by resolution (FHD/HD/SD)
 	// UseXtreamAdvancedParsing uses alternate parsing for some Xtream requests to preserve raw provider response (default false).
 	UseXtreamAdvancedParsing bool
@@ -70,4 +72,6 @@ type ProxyConfig struct {
 	DebugLoggingEnabled bool
 	// CacheFolder is the directory for saving provider/client responses (when non-empty). Use filepath.Join with this; no trailing separator.
 	CacheFolder string
+	// UIPort is the port for the configuration UI (default 8081; 0 = disabled).
+	UIPort int
 }
