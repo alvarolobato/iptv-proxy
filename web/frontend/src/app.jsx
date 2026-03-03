@@ -192,6 +192,28 @@ function MainPage() {
       });
   }, [addToast]);
 
+  const onSaveChannelReplacement = useCallback((fromName, toName) => {
+    if (!fromName || !toName) return Promise.resolve();
+    return fetch('/api/settings')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(res.statusText))))
+      .then((data) => {
+        const settings = data.effective ?? data;
+        const repl = settings?.replacements ?? {};
+        const list = Array.isArray(repl['names-replacements']) ? [...repl['names-replacements']] : [];
+        const escaped = escapeRegexLiteral(fromName);
+        const filtered = list.filter((r) => r.replace !== escaped);
+        filtered.push({ replace: escaped, with: toName });
+        const next = { ...settings, replacements: { ...repl, 'names-replacements': filtered } };
+        return fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next) });
+      })
+      .then((res) => {
+        if (!res.ok) throw new Error(res.statusText);
+        setGroupsRefreshKey((k) => k + 1);
+        setChannelsRefreshKey((k) => k + 1);
+        addToast('Channel replacement saved');
+      });
+  }, [addToast]);
+
   const tabs = [
     { id: 'groups', name: 'Groups' },
     { id: 'channels', name: 'Channels' },
@@ -297,8 +319,10 @@ function MainPage() {
           onShowExcludedChange={setShowExcluded}
           onClearGroupFilter={() => setChannelGroupFilter('')}
           onAddToProcessing={onAddToProcessing}
+          onSaveChannelReplacement={onSaveChannelReplacement}
           addInProgress={processingAddInProgress}
           refreshKey={channelsRefreshKey}
+          addToast={addToast}
         />
       )}
       {selectedTabId === 'processing' && (
@@ -556,7 +580,7 @@ function GroupsTab({ showIncluded, showExcluded, onViewChannels, onAddToProcessi
   );
 }
 
-function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedChange, onShowExcludedChange, onClearGroupFilter, onAddToProcessing, addInProgress, refreshKey }) {
+function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedChange, onShowExcludedChange, onClearGroupFilter, onAddToProcessing, onSaveChannelReplacement, addInProgress, refreshKey, addToast }) {
   const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -567,6 +591,8 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
   const [search, setSearch] = useState('');
   // Type filter: one checkbox per type found in channel URLs (e.g. live, series, movies). Default all on.
   const [typeFilters, setTypeFilters] = useState({});
+  const [editingChannelName, setEditingChannelName] = useState(null);
+  const [editingChannelValue, setEditingChannelValue] = useState('');
 
   const fetchChannels = useCallback(() => {
     setLoading(true);
@@ -704,19 +730,55 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
       truncateText: true,
       render: (name, row) => {
         const r = getChannelRow(name, row);
+        const displayName = r.name ?? name ?? '—';
+        const isEditing = editingChannelName === displayName;
         return (
           <EuiFlexGroup gutterSize="xs" alignItems="center" wrap>
-            <EuiFlexItem grow={false}>
-              <Fragment>
-                {r.name ?? name ?? '—'}
-                {r.tvg_name && r.tvg_name !== (r.name ?? name) && (
-                  <Fragment>
-                    <br />
-                    <span className="euiTextColor--subdued" style={{ fontSize: '12px' }}>tvg-name: {r.tvg_name}</span>
-                  </Fragment>
-                )}
-              </Fragment>
+            <EuiFlexItem grow={true}>
+              {isEditing ? (
+                <EuiFlexGroup gutterSize="xs" alignItems="center">
+                  <EuiFlexItem grow={true}>
+                    <EuiFieldText
+                      fullWidth
+                      value={editingChannelValue}
+                      onChange={(e) => setEditingChannelValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') onSaveChannelReplacement?.(editingChannelName, editingChannelValue)?.then(() => setEditingChannelName(null))?.catch(() => {});
+                        if (e.key === 'Escape') setEditingChannelName(null);
+                      }}
+                      autoFocus
+                    />
+                  </EuiFlexItem>
+                  <EuiFlexItem grow={false}>
+                    <EuiToolTip content="Save">
+                      <EuiButtonEmpty size="xs" iconType="check" color="primary" onClick={() => { onSaveChannelReplacement?.(editingChannelName, editingChannelValue)?.then(() => setEditingChannelName(null))?.catch(() => {}); }} aria-label="Save" />
+                    </EuiToolTip>
+                  </EuiFlexItem>
+                  <EuiFlexItem grow={false}>
+                    <EuiToolTip content="Cancel">
+                      <EuiButtonEmpty size="xs" iconType="cross" color="danger" onClick={() => { setEditingChannelName(null); addToast?.('Canceled'); }} aria-label="Cancel" />
+                    </EuiToolTip>
+                  </EuiFlexItem>
+                </EuiFlexGroup>
+              ) : (
+                <Fragment>
+                  {displayName}
+                  {r.tvg_name && r.tvg_name !== displayName && (
+                    <Fragment>
+                      <br />
+                      <span className="euiTextColor--subdued" style={{ fontSize: '12px' }}>tvg-name: {r.tvg_name}</span>
+                    </Fragment>
+                  )}
+                </Fragment>
+              )}
             </EuiFlexItem>
+            {!isEditing && (
+              <EuiFlexItem grow={false}>
+                <EuiToolTip content="Edit (add replacement)">
+                  <EuiButtonEmpty size="xs" iconType="pencil" onClick={() => { setEditingChannelName(displayName); setEditingChannelValue(displayName); }} aria-label="Edit" />
+                </EuiToolTip>
+              </EuiFlexItem>
+            )}
             {r.name_replaced && (
               <EuiFlexItem grow={false}>
                 <EuiBadge color="hollow" title="Name was replaced">Replaced</EuiBadge>
@@ -766,12 +828,18 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
     { field: 'tvg_id', name: 'tvg-id', sortable: true, truncateText: true },
     {
       name: 'Actions',
-      width: '120px',
+      width: '160px',
       render: (val, item) => {
         const row = getChannelRow(val, item);
         const channelName = row.name ?? '';
+        const streamUrl = row.stream_url;
         return (
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 0 }}>
+            {streamUrl && (
+              <EuiToolTip content="Open stream in new tab">
+                <EuiButtonEmpty iconType="play" size="xs" href={streamUrl} target="_blank" rel="noopener noreferrer" aria-label="Open stream" />
+              </EuiToolTip>
+            )}
             <EuiToolTip content="Add to inclusions">
               <EuiButtonEmpty iconType="plusInCircleFilled" size="xs" color="success" onClick={() => onAddToProcessing({ section: 'channel_inclusions', value: channelName })} aria-label="Add to inclusions" isDisabled={addInProgress} />
             </EuiToolTip>
@@ -1132,7 +1200,7 @@ function ProcessingTab({ prepopulate, onClearPrepopulate, addToast, onSettingsSa
       <EuiTabs size="s">
         {['global', 'names', 'groups'].map((id) => (
           <EuiTab key={id} onClick={() => setReplacementsSection(id)} isSelected={replacementsSection === id}>
-            {id === 'global' ? 'Global' : id === 'names' ? 'Names' : 'Groups'}
+            {id === 'global' ? 'Global' : id === 'names' ? 'Channels' : 'Groups'}
           </EuiTab>
         ))}
       </EuiTabs>

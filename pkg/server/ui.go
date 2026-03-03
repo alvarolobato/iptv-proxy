@@ -256,6 +256,7 @@ type channelRowProcessed struct {
 	Excluded      bool   `json:"excluded"`
 	NameReplaced  bool   `json:"name_replaced"`
 	GroupReplaced bool   `json:"group_replaced"`
+	StreamURL     string `json:"stream_url,omitempty"` // proxified stream URL (only for included tracks in M3U mode)
 }
 
 func (c *Config) channelsFromPlaylist() []channelRow {
@@ -290,6 +291,7 @@ func (c *Config) channelsProcessed() []channelRowProcessed {
 	if len(tracksForAPI) == 0 {
 		tracksForAPI = c.playlist.Tracks
 	}
+	xtream := c.ProxyConfig.XtreamBaseURL != ""
 	out := make([]channelRowProcessed, 0, len(tracksForAPI))
 	for _, track := range tracksForAPI {
 		rawGroup := getGroupTitle(track)
@@ -303,6 +305,18 @@ func (c *Config) channelsProcessed() []channelRowProcessed {
 
 		channelType := channelTypeFromURI(track.URI)
 
+		streamURL := ""
+		if !xtream && !excluded && c.playlist != nil {
+			for idx, t := range c.playlist.Tracks {
+				if t.Name == track.Name && t.URI == track.URI {
+					if u, err := c.replaceURL(track.URI, idx, false); err == nil {
+						streamURL = u
+					}
+					break
+				}
+			}
+		}
+
 		row := channelRowProcessed{
 			Name:          displayName,
 			Group:         displayGroup,
@@ -310,6 +324,7 @@ func (c *Config) channelsProcessed() []channelRowProcessed {
 			Excluded:      excluded,
 			NameReplaced:  displayName != rawName,
 			GroupReplaced: displayGroup != rawGroup,
+			StreamURL:     streamURL,
 		}
 		for _, tag := range track.Tags {
 			switch tag.Name {
