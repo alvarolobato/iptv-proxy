@@ -174,6 +174,11 @@ func (c *Config) logServerReady(ctx *StartupContext) {
 		{"cache_folder", c.CacheFolder, source("cache_folder")},
 		{"use_xtream_advanced_parsing", fmt.Sprintf("%v", c.UseXtreamAdvancedParsing), source("use_xtream_advanced_parsing")},
 		{"ui_port", fmt.Sprintf("%d", c.UIPort), source("ui_port")},
+		{"es_url", c.ESUrl, "flag/env"},
+		{"es_api_key", mask(c.ESApiKey), "flag/env"},
+		{"es_username", c.ESUsername, "flag/env"},
+		{"es_index_prefix", c.ESIndexPrefix, "flag/env"},
+		{"stats_enabled", fmt.Sprintf("%v", c.StatsEnabled), "flag/env"},
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].key < rows[j].key })
 	for _, r := range rows {

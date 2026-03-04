@@ -1,10 +1,10 @@
 // Kibana Dev Console — paste both blocks to create the user history data stream.
-// Replace "iptv" in index names with your --es-index-prefix if different.
+// Replace "iptv" with your --es-index-prefix if different (e.g. iptv → myprefix → myprefix.user_history).
 
 // Step 1: Create the index template
-PUT _index_template/metrics-iptv.user_history
+PUT _index_template/iptv.user_history
 {
-  "index_patterns": ["metrics-iptv.user_history"],
+  "index_patterns": ["iptv.user_history"],
   "data_stream": {},
   "template": {
     "mappings": {
@@ -31,4 +31,4 @@ PUT _index_template/metrics-iptv.user_history
 }
 
 // Step 2: Create the data stream
-PUT _data_stream/metrics-iptv.user_history
+PUT _data_stream/iptv.user_history

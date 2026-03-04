@@ -108,12 +108,13 @@ func NewESCollector(cfg ESConfig) (*ESCollector, error) {
 	return c, nil
 }
 
-// Internal index names follow the metrics-* naming convention so Elasticsearch
-// and Kibana recognise them as metrics data streams.
-// Format: metrics-{prefix}.{dataset}
-func (c *ESCollector) sessionsIndex() string      { return "metrics-" + c.prefix + ".sessions" }
+// Index name conventions:
+//   - channel_metrics uses metrics-{prefix}.channel_metrics (TSDB data stream — metrics-* is required for TSDB)
+//   - sessions and user_history use {prefix}.sessions / {prefix}.user_history (regular data streams;
+//     no need for the metrics-* prefix since they are event logs, not time-series metrics)
+func (c *ESCollector) sessionsIndex() string      { return c.prefix + ".sessions" }
 func (c *ESCollector) channelMetricsIndex() string { return "metrics-" + c.prefix + ".channel_metrics" }
-func (c *ESCollector) userHistoryIndex() string    { return "metrics-" + c.prefix + ".user_history" }
+func (c *ESCollector) userHistoryIndex() string    { return c.prefix + ".user_history" }
 
 // Public index name accessors (used by stats_handlers.go).
 func (c *ESCollector) SessionsIndexName() string      { return c.sessionsIndex() }
@@ -479,10 +480,12 @@ func (c *ESCollector) esRequest(method, path string, body interface{}) ([]byte, 
 
 // ---- ES data stream + index template bootstrap ----
 //
-// All three indices use the metrics-* naming convention which ES reserves
-// for data streams. Bootstrap therefore:
+// Bootstrap sequence for each index:
 //   1. Creates a composable index template (with mappings + TSDB settings where applicable)
 //   2. Creates the data stream itself via the data-stream API
+//
+// channel_metrics uses metrics-* naming (required for TSDB mode in ES serverless).
+// sessions and user_history use plain {prefix}.* naming (regular event-log data streams).
 
 func (c *ESCollector) bootstrapIndices() error {
 	if err := c.ensureSessionsDataStream(); err != nil {

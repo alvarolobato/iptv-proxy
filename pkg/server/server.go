@@ -381,6 +381,36 @@ func getGroupTitle(track m3u.Track) string {
 	return ""
 }
 
+// getTvgName returns the tvg-name tag value, falling back to track.Name.
+// Used as the canonical cross-provider channel identifier in stats.
+func getTvgName(track m3u.Track) string {
+	for _, t := range track.Tags {
+		if t.Name == "tvg-name" && t.Value != "" {
+			return t.Value
+		}
+	}
+	return track.Name
+}
+
+// lookupTrackByStreamID finds a track in the playlist whose URI basename (without extension)
+// matches the given Xtream stream ID. Returns nil if not found.
+func (c *Config) lookupTrackByStreamID(streamID string) *m3u.Track {
+	if streamID == "" {
+		return nil
+	}
+	for i := range c.fullPlaylistTracks {
+		t := &c.fullPlaylistTracks[i]
+		base := path.Base(t.URI)
+		if idx := strings.LastIndex(base, "."); idx > 0 {
+			base = base[:idx]
+		}
+		if base == streamID {
+			return t
+		}
+	}
+	return nil
+}
+
 // matchInclusionExclusion returns true if the track should be kept.
 // Empty inclusion list = allow all; empty exclusion list = exclude none.
 func matchInclusionExclusion(group, channelName string, groupIncl, groupExcl, channelIncl, channelExcl []*regexp.Regexp) bool {
