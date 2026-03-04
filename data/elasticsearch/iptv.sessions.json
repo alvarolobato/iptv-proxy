@@ -1,10 +1,10 @@
 // Kibana Dev Console — paste both blocks to create the sessions data stream.
-// Replace "iptv" in index names with your --es-index-prefix if different.
+// Replace "iptv" with your --es-index-prefix if different (e.g. iptv → myprefix → myprefix.sessions).
 
 // Step 1: Create the index template
-PUT _index_template/metrics-iptv.sessions
+PUT _index_template/iptv.sessions
 {
-  "index_patterns": ["metrics-iptv.sessions"],
+  "index_patterns": ["iptv.sessions"],
   "data_stream": {},
   "template": {
     "mappings": {
@@ -32,4 +32,4 @@ PUT _index_template/metrics-iptv.sessions
 }
 
 // Step 2: Create the data stream
-PUT _data_stream/metrics-iptv.sessions
+PUT _data_stream/iptv.sessions

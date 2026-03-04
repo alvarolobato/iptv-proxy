@@ -366,13 +366,7 @@ func (c *Config) xtreamStreamTimeshift(ctx *gin.Context) {
 		return
 	}
 	streamID := strings.Split(id, ".")[0]
-	chanInfo := stats.SessionEvent{
-		ChannelID:       streamID,
-		ChannelStreamID: streamID,
-		ChannelType:     stats.ChannelTypeLive,
-		ProxyMode:       stats.ProxyModeXtream,
-	}
-	c.streamWithStats(ctx, rpURL, chanInfo)
+	c.xtreamStreamWithChannelInfo(ctx, rpURL, streamID, stats.ChannelTypeLive)
 }
 
 func (c *Config) xtreamStreamMovie(ctx *gin.Context) {

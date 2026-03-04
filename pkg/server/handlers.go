@@ -68,9 +68,9 @@ func (c *Config) reverseProxy(ctx *gin.Context) {
 
 	chanInfo := stats.SessionEvent{}
 	if c.track != nil {
+		chanInfo.ChannelID = getTvgName(*c.track)
 		chanInfo.ChannelName = c.track.Name
 		chanInfo.ChannelGroup = getGroupTitle(*c.track)
-		chanInfo.ChannelID = c.track.URI
 		chanInfo.ChannelType = stats.ChannelTypeM3U
 		chanInfo.ProxyMode = stats.ProxyModeM3U
 	}
@@ -88,9 +88,9 @@ func (c *Config) m3u8ReverseProxy(ctx *gin.Context) {
 
 	chanInfo := stats.SessionEvent{}
 	if c.track != nil {
+		chanInfo.ChannelID = getTvgName(*c.track)
 		chanInfo.ChannelName = c.track.Name
 		chanInfo.ChannelGroup = getGroupTitle(*c.track)
-		chanInfo.ChannelID = c.track.URI
 		chanInfo.ChannelType = stats.ChannelTypeM3U
 		chanInfo.ProxyMode = stats.ProxyModeM3U
 	}
@@ -166,11 +166,17 @@ func (c *Config) xtreamStreamWithChannelInfo(ctx *gin.Context, oriURL *url.URL, 
 		c.hlsXtreamStream(ctx, oriURL)
 		return
 	}
+	// Use the stream numeric ID as fallback; try to resolve a human-readable name from the playlist.
 	chanInfo := stats.SessionEvent{
 		ChannelID:       streamID,
 		ChannelStreamID: streamID,
 		ChannelType:     chanType,
 		ProxyMode:       stats.ProxyModeXtream,
+	}
+	if t := c.lookupTrackByStreamID(streamID); t != nil {
+		chanInfo.ChannelID = getTvgName(*t)
+		chanInfo.ChannelName = t.Name
+		chanInfo.ChannelGroup = getGroupTitle(*t)
 	}
 	c.streamWithStats(ctx, oriURL, chanInfo)
 }
