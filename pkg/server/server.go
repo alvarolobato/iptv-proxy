@@ -31,6 +31,7 @@ import (
 
 	"github.com/jamesnetherton/m3u"
 	"github.com/alvarolobato/iptv-proxy/pkg/config"
+	"github.com/alvarolobato/iptv-proxy/pkg/stats"
 	uuid "github.com/satori/go.uuid"
 )
 
@@ -76,6 +77,9 @@ type Config struct {
 	endpointAntiColision string
 
 	xmltvCache *responseCache
+
+	// statsCollector records session events to Elasticsearch (or no-ops when ES is not configured).
+	statsCollector stats.Collector
 }
 
 // NewServer initialize a new server configuration. settings is optional (from settings.json); when set, replacements come from it.
@@ -105,8 +109,28 @@ func NewServer(proxyConfig *config.ProxyConfig, settings *config.SettingsJSON, d
 		track:                nil,
 		proxyfiedM3UPath:     defaultProxyfiedM3UPath,
 		endpointAntiColision: endpointAntiColision,
+		statsCollector:       &stats.NoopCollector{},
 	}
 	cfg.xmltvCache = newResponseCache(proxyConfig.XMLTVCacheTTL, proxyConfig.XMLTVCacheMaxEntries)
+
+	// Initialize Elasticsearch stats collector when URL is configured.
+	if proxyConfig.StatsEnabled && proxyConfig.ESUrl != "" {
+		esCfg := stats.ESConfig{
+			URL:         proxyConfig.ESUrl,
+			APIKey:      proxyConfig.ESApiKey,
+			Username:    proxyConfig.ESUsername,
+			Password:    proxyConfig.ESPassword,
+			IndexPrefix: proxyConfig.ESIndexPrefix,
+		}
+		esCollector, err := stats.NewESCollector(esCfg)
+		if err != nil {
+			log.Printf("[iptv-proxy] WARN: could not initialize stats collector: %v; stats will be disabled", err)
+		} else {
+			cfg.statsCollector = esCollector
+			log.Printf("[iptv-proxy] Stats: Elasticsearch collector initialized (prefix: %s)", proxyConfig.ESIndexPrefix)
+		}
+	}
+
 	return cfg, nil
 }
 

@@ -35,6 +35,7 @@ import (
 	"github.com/jamesnetherton/m3u"
 	xtreamapi "github.com/alvarolobato/iptv-proxy/pkg/xtream-proxy"
 	uuid "github.com/satori/go.uuid"
+	"github.com/alvarolobato/iptv-proxy/pkg/stats"
 	xtreamcodes "github.com/tellytv/go.xtream-codes"
 )
 
@@ -329,8 +330,8 @@ func (c *Config) xtreamStreamHandler(ctx *gin.Context) {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
-
-	c.xtreamStream(ctx, rpURL)
+	streamID := strings.Split(id, ".")[0]
+	c.xtreamStreamWithChannelInfo(ctx, rpURL, streamID, stats.ChannelTypeLive)
 }
 
 func (c *Config) xtreamStreamLive(ctx *gin.Context) {
@@ -340,8 +341,8 @@ func (c *Config) xtreamStreamLive(ctx *gin.Context) {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
-
-	c.xtreamStream(ctx, rpURL)
+	streamID := strings.Split(id, ".")[0]
+	c.xtreamStreamWithChannelInfo(ctx, rpURL, streamID, stats.ChannelTypeLive)
 }
 
 func (c *Config) xtreamStreamPlay(ctx *gin.Context) {
@@ -352,8 +353,7 @@ func (c *Config) xtreamStreamPlay(ctx *gin.Context) {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
-
-	c.xtreamStream(ctx, rpURL)
+	c.xtreamStreamWithChannelInfo(ctx, rpURL, token, stats.ChannelTypeLive)
 }
 
 func (c *Config) xtreamStreamTimeshift(ctx *gin.Context) {
@@ -365,8 +365,14 @@ func (c *Config) xtreamStreamTimeshift(ctx *gin.Context) {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
-
-	c.stream(ctx, rpURL)
+	streamID := strings.Split(id, ".")[0]
+	chanInfo := stats.SessionEvent{
+		ChannelID:       streamID,
+		ChannelStreamID: streamID,
+		ChannelType:     stats.ChannelTypeLive,
+		ProxyMode:       stats.ProxyModeXtream,
+	}
+	c.streamWithStats(ctx, rpURL, chanInfo)
 }
 
 func (c *Config) xtreamStreamMovie(ctx *gin.Context) {
@@ -376,8 +382,8 @@ func (c *Config) xtreamStreamMovie(ctx *gin.Context) {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
-
-	c.xtreamStream(ctx, rpURL)
+	streamID := strings.Split(id, ".")[0]
+	c.xtreamStreamWithChannelInfo(ctx, rpURL, streamID, stats.ChannelTypeMovie)
 }
 
 func (c *Config) xtreamStreamSeries(ctx *gin.Context) {
@@ -387,8 +393,8 @@ func (c *Config) xtreamStreamSeries(ctx *gin.Context) {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
-
-	c.xtreamStream(ctx, rpURL)
+	streamID := strings.Split(id, ".")[0]
+	c.xtreamStreamWithChannelInfo(ctx, rpURL, streamID, stats.ChannelTypeSeries)
 }
 
 // xtreamHlsDispatch handles both /hls/:chunk (token in query) and /hls/:token/:chunk in a single route

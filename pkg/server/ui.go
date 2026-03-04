@@ -124,6 +124,9 @@ func (c *Config) runUIServer() {
 		ctx.Status(http.StatusOK)
 	})
 
+	// Stats API endpoints (Elasticsearch-backed; no-ops when ES not configured)
+	c.registerStatsRoutes(router)
+
 	// Serve embedded React UI (SPA fallback for /settings etc.)
 	router.NoRoute(serveStaticUI)
 

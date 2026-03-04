@@ -20,6 +20,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -28,10 +29,28 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/alvarolobato/iptv-proxy/pkg/stats"
 )
+
+// countingReader wraps an io.Reader and counts bytes read.
+type countingReader struct {
+	r     io.Reader
+	count int64
+}
+
+func (cr *countingReader) Read(p []byte) (int, error) {
+	n, err := cr.r.Read(p)
+	atomic.AddInt64(&cr.count, int64(n))
+	return n, err
+}
+
+func (cr *countingReader) Bytes() int64 {
+	return atomic.LoadInt64(&cr.count)
+}
 
 func (c *Config) getM3U(ctx *gin.Context) {
 	ctx.Header("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, c.M3UFileName))
@@ -47,7 +66,15 @@ func (c *Config) reverseProxy(ctx *gin.Context) {
 		return
 	}
 
-	c.stream(ctx, rpURL)
+	chanInfo := stats.SessionEvent{}
+	if c.track != nil {
+		chanInfo.ChannelName = c.track.Name
+		chanInfo.ChannelGroup = getGroupTitle(*c.track)
+		chanInfo.ChannelID = c.track.URI
+		chanInfo.ChannelType = stats.ChannelTypeM3U
+		chanInfo.ProxyMode = stats.ProxyModeM3U
+	}
+	c.streamWithStats(ctx, rpURL, chanInfo)
 }
 
 func (c *Config) m3u8ReverseProxy(ctx *gin.Context) {
@@ -59,10 +86,24 @@ func (c *Config) m3u8ReverseProxy(ctx *gin.Context) {
 		return
 	}
 
-	c.stream(ctx, rpURL)
+	chanInfo := stats.SessionEvent{}
+	if c.track != nil {
+		chanInfo.ChannelName = c.track.Name
+		chanInfo.ChannelGroup = getGroupTitle(*c.track)
+		chanInfo.ChannelID = c.track.URI
+		chanInfo.ChannelType = stats.ChannelTypeM3U
+		chanInfo.ProxyMode = stats.ProxyModeM3U
+	}
+	c.streamWithStats(ctx, rpURL, chanInfo)
 }
 
+// stream proxies a single HTTP response body to the client without stats tracking.
 func (c *Config) stream(ctx *gin.Context, oriURL *url.URL) {
+	c.streamWithStats(ctx, oriURL, stats.SessionEvent{})
+}
+
+// streamWithStats proxies a single HTTP response body to the client, recording session stats.
+func (c *Config) streamWithStats(ctx *gin.Context, oriURL *url.URL, chanInfo stats.SessionEvent) {
 	client := &http.Client{}
 
 	req, err := http.NewRequest("GET", oriURL.String(), nil)
@@ -83,12 +124,29 @@ func (c *Config) stream(ctx *gin.Context, oriURL *url.URL) {
 	}
 	defer resp.Body.Close()
 
+	// Record session start.
+	startEvt := chanInfo
+	startEvt.ClientIP = ctx.ClientIP()
+	startEvt.UserAgent = ctx.Request.UserAgent()
+	startEvt.UserName = c.ProxyConfig.User.String()
+	sessionID := c.statsCollector.RecordSessionStart(context.Background(), startEvt)
+
+	cr := &countingReader{r: resp.Body}
+	startTime := time.Now()
+
 	mergeHttpHeader(ctx.Writer.Header(), resp.Header)
 	ctx.Status(resp.StatusCode)
 	ctx.Stream(func(w io.Writer) bool {
-		io.Copy(w, resp.Body) // nolint: errcheck
+		io.Copy(w, cr) // nolint: errcheck
 		return false
 	})
+
+	// Record session end after streaming completes.
+	endEvt := stats.SessionEvent{
+		DurationSeconds:  int64(time.Since(startTime).Seconds()),
+		BytesTransferred: cr.Bytes(),
+	}
+	c.statsCollector.RecordSessionEnd(context.Background(), sessionID, endEvt)
 }
 
 func (c *Config) xtreamStream(ctx *gin.Context, oriURL *url.URL) {
@@ -99,6 +157,22 @@ func (c *Config) xtreamStream(ctx *gin.Context, oriURL *url.URL) {
 	}
 
 	c.stream(ctx, oriURL)
+}
+
+// xtreamStreamWithChannelInfo proxies an Xtream stream with channel stats context.
+func (c *Config) xtreamStreamWithChannelInfo(ctx *gin.Context, oriURL *url.URL, streamID string, chanType stats.ChannelType) {
+	id := ctx.Param("id")
+	if strings.HasSuffix(id, ".m3u8") {
+		c.hlsXtreamStream(ctx, oriURL)
+		return
+	}
+	chanInfo := stats.SessionEvent{
+		ChannelID:       streamID,
+		ChannelStreamID: streamID,
+		ChannelType:     chanType,
+		ProxyMode:       stats.ProxyModeXtream,
+	}
+	c.streamWithStats(ctx, oriURL, chanInfo)
 }
 
 type values []string
