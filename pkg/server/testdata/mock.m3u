@@ -1,0 +1,31 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="sport1" tvg-name="Sport Channel 1" group-title="Sports",Sport Channel 1
+http://mock-provider.test/live/user/pass/1001.ts
+#EXTINF:-1 tvg-id="sport2" tvg-name="Sport Channel 2" group-title="Sports",Sport Channel 2
+http://mock-provider.test/live/user/pass/1002.ts
+#EXTINF:-1 tvg-id="espn" tvg-name="ESPN Live" group-title="Sports",ESPN Live
+http://mock-provider.test/live/user/pass/1003.ts
+#EXTINF:-1 tvg-id="sky_s" tvg-name="Sky Sports" group-title="Sports",Sky Sports
+http://mock-provider.test/live/user/pass/1004.ts
+#EXTINF:-1 tvg-id="euro" tvg-name="Eurosport" group-title="Sports",Eurosport
+http://mock-provider.test/live/user/pass/1005.ts
+#EXTINF:-1 tvg-id="cnn" tvg-name="CNN International" group-title="News",CNN International
+http://mock-provider.test/live/user/pass/2001.ts
+#EXTINF:-1 tvg-id="bbc" tvg-name="BBC News" group-title="News",BBC News
+http://mock-provider.test/live/user/pass/2002.ts
+#EXTINF:-1 tvg-id="alj" tvg-name="Al Jazeera" group-title="News",Al Jazeera
+http://mock-provider.test/live/user/pass/2003.ts
+#EXTINF:-1 tvg-id="skyn" tvg-name="Sky News" group-title="News",Sky News
+http://mock-provider.test/live/user/pass/2004.ts
+#EXTINF:-1 tvg-id="comedy" tvg-name="Comedy Central" group-title="Entertainment",Comedy Central
+http://mock-provider.test/live/user/pass/3001.ts
+#EXTINF:-1 tvg-id="ch4" tvg-name="Channel 4" group-title="Entertainment",Channel 4
+http://mock-provider.test/live/user/pass/3002.ts
+#EXTINF:-1 tvg-id="fx" tvg-name="FX Channel" group-title="Entertainment",FX Channel
+http://mock-provider.test/live/user/pass/3003.ts
+#EXTINF:-1 tvg-id="cartoon" tvg-name="Cartoon Network" group-title="Kids",Cartoon Network
+http://mock-provider.test/live/user/pass/4001.ts
+#EXTINF:-1 tvg-id="disney" tvg-name="Disney Channel" group-title="Kids",Disney Channel
+http://mock-provider.test/live/user/pass/4002.ts
+#EXTINF:-1 tvg-id="nick" tvg-name="Nickelodeon" group-title="Kids",Nickelodeon
+http://mock-provider.test/live/user/pass/4003.ts
