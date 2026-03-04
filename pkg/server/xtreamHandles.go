@@ -35,6 +35,7 @@ import (
 	"github.com/jamesnetherton/m3u"
 	xtreamapi "github.com/alvarolobato/iptv-proxy/pkg/xtream-proxy"
 	uuid "github.com/satori/go.uuid"
+	xtreamcodes "github.com/tellytv/go.xtream-codes"
 )
 
 type cacheMeta struct {
@@ -264,6 +265,8 @@ func (c *Config) xtreamPlayerAPI(ctx *gin.Context, q url.Values) {
 		return
 	}
 
+	resp = c.filterXtreamResponse(action, resp)
+	resp = c.applyXtreamReplacements(action, resp)
 	ctx.JSON(http.StatusOK, resp)
 }
 
@@ -549,4 +552,115 @@ func (c *Config) hlsXtreamStream(ctx *gin.Context, oriURL *url.URL) {
 	}
 
 	ctx.Status(resp.StatusCode)
+}
+
+// filterXtreamResponse applies group/channel inclusion and exclusion rules to an Xtream API response.
+// Returns the original value unchanged if the action is not filterable or no filters are configured.
+func (c *Config) filterXtreamResponse(action string, resp interface{}) interface{} {
+	groupInclRE := compileRegexList(c.GroupInclusions, "group_inclusions")
+	groupExclRE := compileRegexList(c.GroupExclusions, "group_exclusions")
+	channelInclRE := compileRegexList(c.ChannelInclusions, "channel_inclusions")
+	channelExclRE := compileRegexList(c.ChannelExclusions, "channel_exclusions")
+
+	hasFilters := len(groupInclRE)+len(groupExclRE)+len(channelInclRE)+len(channelExclRE) > 0
+	if !hasFilters {
+		return resp
+	}
+
+	switch action {
+	case "get_live_categories", "get_vod_categories", "get_series_categories":
+		cats, ok := resp.([]xtreamcodes.Category)
+		if !ok {
+			return resp
+		}
+		out := make([]xtreamcodes.Category, 0, len(cats))
+		for _, cat := range cats {
+			if matchInclusionExclusion(cat.Name, "", groupInclRE, groupExclRE, nil, nil) {
+				out = append(out, cat)
+			}
+		}
+		return out
+
+	case "get_live_streams", "get_vod_streams":
+		streams, ok := resp.([]xtreamcodes.Stream)
+		if !ok {
+			return resp
+		}
+		out := make([]xtreamcodes.Stream, 0, len(streams))
+		for _, s := range streams {
+			if matchInclusionExclusion(s.CategoryName, s.Name, groupInclRE, groupExclRE, channelInclRE, channelExclRE) {
+				out = append(out, s)
+			}
+		}
+		return out
+
+	case "get_series":
+		series, ok := resp.([]xtreamcodes.SeriesInfo)
+		if !ok {
+			return resp
+		}
+		out := make([]xtreamcodes.SeriesInfo, 0, len(series))
+		for _, s := range series {
+			if matchInclusionExclusion("", s.Name, nil, nil, channelInclRE, channelExclRE) {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+
+	return resp
+}
+
+// applyXtreamReplacements renames category names and stream/series names in an Xtream API response
+// using the configured replacement rules.
+func (c *Config) applyXtreamReplacements(action string, resp interface{}) interface{} {
+	replacements := c.getReplacements()
+	if len(replacements.Global)+len(replacements.Names)+len(replacements.Groups) == 0 {
+		return resp
+	}
+
+	switch action {
+	case "get_live_categories", "get_vod_categories", "get_series_categories":
+		cats, ok := resp.([]xtreamcodes.Category)
+		if !ok {
+			return resp
+		}
+		out := make([]xtreamcodes.Category, len(cats))
+		copy(out, cats)
+		for i := range out {
+			out[i].Name = applyReplacements(replacements.Global, out[i].Name)
+			out[i].Name = applyReplacements(replacements.Groups, out[i].Name)
+		}
+		return out
+
+	case "get_live_streams", "get_vod_streams":
+		streams, ok := resp.([]xtreamcodes.Stream)
+		if !ok {
+			return resp
+		}
+		out := make([]xtreamcodes.Stream, len(streams))
+		copy(out, streams)
+		for i := range out {
+			out[i].Name = applyReplacements(replacements.Global, out[i].Name)
+			out[i].Name = applyReplacements(replacements.Names, out[i].Name)
+			out[i].CategoryName = applyReplacements(replacements.Global, out[i].CategoryName)
+			out[i].CategoryName = applyReplacements(replacements.Groups, out[i].CategoryName)
+		}
+		return out
+
+	case "get_series":
+		series, ok := resp.([]xtreamcodes.SeriesInfo)
+		if !ok {
+			return resp
+		}
+		out := make([]xtreamcodes.SeriesInfo, len(series))
+		copy(out, series)
+		for i := range out {
+			out[i].Name = applyReplacements(replacements.Global, out[i].Name)
+			out[i].Name = applyReplacements(replacements.Names, out[i].Name)
+		}
+		return out
+	}
+
+	return resp
 }
