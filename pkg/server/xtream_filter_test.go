@@ -156,11 +156,6 @@ func streamNames(items []map[string]interface{}) []string {
 	return out
 }
 
-// streamCategoryNames extracts the "category_name" field from stream items.
-func streamCategoryNames(items []map[string]interface{}) []string {
-	return categoryNames(items) // same field
-}
-
 func withGroupExcl(groups ...string) func(*config.ProxyConfig) {
 	return func(c *config.ProxyConfig) { c.GroupExclusions = groups }
 }
