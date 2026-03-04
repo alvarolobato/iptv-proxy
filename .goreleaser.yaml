@@ -9,6 +9,8 @@ builds:
     flags:
       - -mod=vendor
       - -a
+    ldflags:
+      - -s -w -X 'github.com/alvarolobato/iptv-proxy/cmd.BuildDate={{.Date}}'
     goos:
       - windows
       - darwin

@@ -37,6 +37,9 @@ import (
 	"github.com/spf13/viper"
 )
 
+// BuildDate is the date the binary was built. It is set at build time via ldflags.
+var BuildDate = "unknown"
+
 var cfgFile string
 
 // rootCmd represents the base command when called without any subcommands
@@ -53,7 +56,7 @@ var rootCmd = &cobra.Command{
   # Using config file and env (e.g. Docker)
   IPTV_PROXY_M3U_URL="http://example.com/get.php?username=user&password=pass&type=m3u_plus&output=m3u8" IPTV_PROXY_HOSTNAME=localhost iptv-proxy --data-folder /data`,
 	Run: func(cmd *cobra.Command, args []string) {
-		log.Printf("[iptv-proxy] Server is starting...")
+		log.Printf("[iptv-proxy] Server is starting... (build date: %s)", BuildDate)
 		m3uURL := viper.GetString("m3u-url")
 		remoteHostURL, err := url.Parse(m3uURL)
 		if err != nil {

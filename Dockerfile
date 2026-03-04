@@ -5,7 +5,10 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -a -installsuffix cgo -o iptv-proxy2 .
+RUN BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) && \
+    CGO_ENABLED=0 GOOS=linux go build -mod=vendor -a -installsuffix cgo \
+    -ldflags="-X 'github.com/alvarolobato/iptv-proxy/cmd.BuildDate=${BUILD_DATE}'" \
+    -o iptv-proxy2 .
 
 FROM alpine:3
 
