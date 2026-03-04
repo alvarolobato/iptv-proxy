@@ -47,7 +47,8 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          go build -mod=vendor -ldflags="-s -w" -o iptv-proxy${{ matrix.suffix }} .
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          go build -mod=vendor -ldflags="-s -w -X 'github.com/alvarolobato/iptv-proxy/cmd.BuildDate=${BUILD_DATE}'" -o iptv-proxy${{ matrix.suffix }} .
           if [ "${{ matrix.goos }}" = "windows" ]; then
             zip iptv-proxy_${{ matrix.goos }}_${{ matrix.goarch }}.zip iptv-proxy${{ matrix.suffix }}
           else
