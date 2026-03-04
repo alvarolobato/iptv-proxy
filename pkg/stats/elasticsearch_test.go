@@ -81,7 +81,7 @@ func TestESCollector_Integration(t *testing.T) {
 		t.Errorf("expected 0 active sessions, got %d", n)
 	}
 
-	// Trigger rollup flush
+	// Trigger rollup flush (synchronous direct call; channel_metrics TSDB index).
 	collector.flushRollup()
 	t.Log("Rollup flushed")
 

@@ -108,10 +108,12 @@ func NewESCollector(cfg ESConfig) (*ESCollector, error) {
 	return c, nil
 }
 
-// Internal index names.
-func (c *ESCollector) sessionsIndex() string      { return c.prefix + "-sessions" }
-func (c *ESCollector) channelMetricsIndex() string { return c.prefix + "-channel-metrics" }
-func (c *ESCollector) userHistoryIndex() string    { return c.prefix + "-user-history" }
+// Internal index names follow the metrics-* naming convention so Elasticsearch
+// and Kibana recognise them as metrics data streams.
+// Format: metrics-{prefix}.{dataset}
+func (c *ESCollector) sessionsIndex() string      { return "metrics-" + c.prefix + ".sessions" }
+func (c *ESCollector) channelMetricsIndex() string { return "metrics-" + c.prefix + ".channel_metrics" }
+func (c *ESCollector) userHistoryIndex() string    { return "metrics-" + c.prefix + ".user_history" }
 
 // Public index name accessors (used by stats_handlers.go).
 func (c *ESCollector) SessionsIndexName() string      { return c.sessionsIndex() }
@@ -371,12 +373,33 @@ func (c *ESCollector) flushRollup() {
 
 	now := time.Now().UTC().Truncate(rollupInterval)
 	for _, acc := range snapshot {
+		// TSDB requires all dimension fields to be present and non-empty.
+		channelID := acc.channelID
+		if channelID == "" {
+			channelID = acc.channelName
+		}
+		if channelID == "" {
+			channelID = "_unknown"
+		}
+		channelName := acc.channelName
+		if channelName == "" {
+			channelName = channelID
+		}
+		channelGroup := acc.channelGroup
+		if channelGroup == "" {
+			channelGroup = "_unknown"
+		}
+		channelType := acc.channelType
+		if channelType == "" {
+			channelType = ChannelTypeLive
+		}
+
 		metric := ChannelMetric{
 			Timestamp:         now,
-			ChannelID:         acc.channelID,
-			ChannelName:       acc.channelName,
-			ChannelGroup:      acc.channelGroup,
-			ChannelType:       acc.channelType,
+			ChannelID:         channelID,
+			ChannelName:       channelName,
+			ChannelGroup:      channelGroup,
+			ChannelType:       channelType,
 			SessionCount:      acc.sessionCount,
 			ActiveSessions:    acc.activeSessions,
 			TotalDurationSecs: acc.totalDurationSecs,
@@ -454,130 +477,173 @@ func (c *ESCollector) esRequest(method, path string, body interface{}) ([]byte, 
 	return b, resp.StatusCode, nil
 }
 
-// ---- ES index/template bootstrap ----
+// ---- ES data stream + index template bootstrap ----
+//
+// All three indices use the metrics-* naming convention which ES reserves
+// for data streams. Bootstrap therefore:
+//   1. Creates a composable index template (with mappings + TSDB settings where applicable)
+//   2. Creates the data stream itself via the data-stream API
 
 func (c *ESCollector) bootstrapIndices() error {
-	if err := c.ensureSessionsIndex(); err != nil {
+	if err := c.ensureSessionsDataStream(); err != nil {
 		return err
 	}
-	if err := c.ensureChannelMetricsIndex(); err != nil {
+	if err := c.ensureChannelMetricsDataStream(); err != nil {
 		return err
 	}
-	if err := c.ensureUserHistoryIndex(); err != nil {
+	if err := c.ensureUserHistoryDataStream(); err != nil {
 		return err
 	}
 	return nil
 }
 
-// indexExists returns true when the index (or alias) already exists.
-func (c *ESCollector) indexExists(name string) bool {
-	_, status, err := c.esRequest(http.MethodHead, "/"+name, nil)
+// dataStreamExists returns true when the data stream already exists.
+func (c *ESCollector) dataStreamExists(name string) bool {
+	_, status, err := c.esRequest(http.MethodGet, "/_data_stream/"+name, nil)
 	return err == nil && status == http.StatusOK
 }
 
-func (c *ESCollector) ensureSessionsIndex() error {
-	if c.indexExists(c.sessionsIndex()) {
+func (c *ESCollector) ensureSessionsDataStream() error {
+	name := c.sessionsIndex()
+	if c.dataStreamExists(name) {
 		return nil
 	}
-	mapping := map[string]interface{}{
-		"mappings": map[string]interface{}{
-			"dynamic": "true",
-			"properties": map[string]interface{}{
-				"@timestamp":        map[string]interface{}{"type": "date"},
-				"event_kind":        map[string]interface{}{"type": "keyword"},
-				"session_id":        map[string]interface{}{"type": "keyword"},
-				"duration_seconds":  map[string]interface{}{"type": "long"},
-				"bytes_transferred": map[string]interface{}{"type": "long"},
-				"client_ip":         map[string]interface{}{"type": "keyword"},
-				"user_agent":        map[string]interface{}{"type": "keyword"},
-				"error_message":     map[string]interface{}{"type": "text"},
-				"channel_id":        map[string]interface{}{"type": "keyword"},
-				"channel_name":      map[string]interface{}{"type": "keyword"},
-				"channel_group":     map[string]interface{}{"type": "keyword"},
-				"channel_type":      map[string]interface{}{"type": "keyword"},
-				"channel_stream_id": map[string]interface{}{"type": "keyword"},
-				"user_name":         map[string]interface{}{"type": "keyword"},
-				"proxy_mode":        map[string]interface{}{"type": "keyword"},
+	// 1. Index template
+	tpl := map[string]interface{}{
+		"index_patterns": []string{name},
+		"data_stream":    map[string]interface{}{},
+		"template": map[string]interface{}{
+			"mappings": map[string]interface{}{
+				"dynamic": "strict",
+				"properties": map[string]interface{}{
+					"@timestamp":        map[string]interface{}{"type": "date"},
+					"event_kind":        map[string]interface{}{"type": "keyword"},
+					"session_id":        map[string]interface{}{"type": "keyword"},
+					"duration_seconds":  map[string]interface{}{"type": "long"},
+					"bytes_transferred": map[string]interface{}{"type": "long"},
+					"client_ip":         map[string]interface{}{"type": "keyword"},
+					"user_agent":        map[string]interface{}{"type": "keyword"},
+					"error_message":     map[string]interface{}{"type": "text"},
+					"channel_id":        map[string]interface{}{"type": "keyword"},
+					"channel_name":      map[string]interface{}{"type": "keyword"},
+					"channel_group":     map[string]interface{}{"type": "keyword"},
+					"channel_type":      map[string]interface{}{"type": "keyword"},
+					"channel_stream_id": map[string]interface{}{"type": "keyword"},
+					"user_name":         map[string]interface{}{"type": "keyword"},
+					"proxy_mode":        map[string]interface{}{"type": "keyword"},
+				},
 			},
 		},
+		"priority": 200,
 	}
-	body, status, err := c.esRequest(http.MethodPut, "/"+c.sessionsIndex(), mapping)
+	if body, status, err := c.esRequest(http.MethodPut, "/_index_template/"+name, tpl); err != nil || status >= 300 {
+		return fmt.Errorf("create sessions index template: %d: %s", status, string(body))
+	}
+	// 2. Data stream
+	body, status, err := c.esRequest(http.MethodPut, "/_data_stream/"+name, nil)
 	if err != nil {
 		return err
 	}
 	if status >= 300 {
-		return fmt.Errorf("create sessions index: %d: %s", status, string(body))
+		return fmt.Errorf("create sessions data stream: %d: %s", status, string(body))
 	}
-	log.Printf("[iptv-proxy] stats: created index %s", c.sessionsIndex())
+	log.Printf("[iptv-proxy] stats: created data stream %s", name)
 	return nil
 }
 
-func (c *ESCollector) ensureChannelMetricsIndex() error {
-	if c.indexExists(c.channelMetricsIndex()) {
+func (c *ESCollector) ensureChannelMetricsDataStream() error {
+	name := c.channelMetricsIndex()
+	if c.dataStreamExists(name) {
 		return nil
 	}
-	mapping := map[string]interface{}{
-		"mappings": map[string]interface{}{
-			"dynamic": "true",
-			"properties": map[string]interface{}{
-				"@timestamp":             map[string]interface{}{"type": "date"},
-				"channel_id":             map[string]interface{}{"type": "keyword"},
-				"channel_name":           map[string]interface{}{"type": "keyword"},
-				"channel_group":          map[string]interface{}{"type": "keyword"},
-				"channel_type":           map[string]interface{}{"type": "keyword"},
-				"session_count":          map[string]interface{}{"type": "long"},
-				"active_sessions":        map[string]interface{}{"type": "long"},
-				"total_duration_seconds": map[string]interface{}{"type": "long"},
-				"bytes_transferred":      map[string]interface{}{"type": "long"},
-				"error_count":            map[string]interface{}{"type": "long"},
-				"unique_users":           map[string]interface{}{"type": "long"},
+	// TSDB data stream: index.mode=time_series with typed dimensions and metrics.
+	// Dimensions (time_series_dimension: true) uniquely identify a time series.
+	// Metrics: gauge for point-in-time values, counter for monotonically increasing totals.
+	tpl := map[string]interface{}{
+		"index_patterns": []string{name},
+		"data_stream":    map[string]interface{}{},
+		"template": map[string]interface{}{
+			"settings": map[string]interface{}{
+				"index.mode":         "time_series",
+				"index.routing_path": []string{"channel_id", "channel_type"},
+			},
+			"mappings": map[string]interface{}{
+				"dynamic": "strict",
+				"properties": map[string]interface{}{
+					"@timestamp":    map[string]interface{}{"type": "date"},
+					"channel_id":    map[string]interface{}{"type": "keyword", "time_series_dimension": true},
+					"channel_name":  map[string]interface{}{"type": "keyword", "time_series_dimension": true},
+					"channel_group": map[string]interface{}{"type": "keyword", "time_series_dimension": true},
+					"channel_type":  map[string]interface{}{"type": "keyword", "time_series_dimension": true},
+					// Gauges: point-in-time values
+					"session_count":   map[string]interface{}{"type": "long", "time_series_metric": "gauge"},
+					"active_sessions": map[string]interface{}{"type": "long", "time_series_metric": "gauge"},
+					"unique_users":    map[string]interface{}{"type": "long", "time_series_metric": "gauge"},
+					// Counters: monotonically increasing totals
+					"total_duration_seconds": map[string]interface{}{"type": "long", "time_series_metric": "counter"},
+					"bytes_transferred":      map[string]interface{}{"type": "long", "time_series_metric": "counter"},
+					"error_count":            map[string]interface{}{"type": "long", "time_series_metric": "counter"},
+				},
 			},
 		},
+		"priority": 200,
 	}
-	body, status, err := c.esRequest(http.MethodPut, "/"+c.channelMetricsIndex(), mapping)
+	if body, status, err := c.esRequest(http.MethodPut, "/_index_template/"+name, tpl); err != nil || status >= 300 {
+		return fmt.Errorf("create channel_metrics index template: %d: %s", status, string(body))
+	}
+	body, status, err := c.esRequest(http.MethodPut, "/_data_stream/"+name, nil)
 	if err != nil {
 		return err
 	}
 	if status >= 300 {
-		return fmt.Errorf("create channel-metrics index: %d: %s", status, string(body))
+		return fmt.Errorf("create channel_metrics data stream: %d: %s", status, string(body))
 	}
-	log.Printf("[iptv-proxy] stats: created index %s", c.channelMetricsIndex())
+	log.Printf("[iptv-proxy] stats: created TSDB data stream %s (dimensions: channel_id, channel_name, channel_group, channel_type)", name)
 	return nil
 }
 
-func (c *ESCollector) ensureUserHistoryIndex() error {
-	if c.indexExists(c.userHistoryIndex()) {
+func (c *ESCollector) ensureUserHistoryDataStream() error {
+	name := c.userHistoryIndex()
+	if c.dataStreamExists(name) {
 		return nil
 	}
-	mapping := map[string]interface{}{
-		"mappings": map[string]interface{}{
-			"dynamic": "true",
-			"properties": map[string]interface{}{
-				"@timestamp":       map[string]interface{}{"type": "date"},
-				"session_id":       map[string]interface{}{"type": "keyword"},
-				"session_end_time": map[string]interface{}{"type": "date"},
-				"duration_seconds": map[string]interface{}{"type": "long"},
-				"bytes_transferred": map[string]interface{}{"type": "long"},
-				"channel_id":       map[string]interface{}{"type": "keyword"},
-				"channel_name":     map[string]interface{}{"type": "keyword"},
-				"channel_group":    map[string]interface{}{"type": "keyword"},
-				"channel_type":     map[string]interface{}{"type": "keyword"},
-				"channel_stream_id": map[string]interface{}{"type": "keyword"},
-				"user_name":        map[string]interface{}{"type": "keyword"},
-				"client_ip":        map[string]interface{}{"type": "keyword"},
-				"user_agent":       map[string]interface{}{"type": "keyword"},
-				"proxy_mode":       map[string]interface{}{"type": "keyword"},
+	tpl := map[string]interface{}{
+		"index_patterns": []string{name},
+		"data_stream":    map[string]interface{}{},
+		"template": map[string]interface{}{
+			"mappings": map[string]interface{}{
+				"dynamic": "strict",
+				"properties": map[string]interface{}{
+					"@timestamp":        map[string]interface{}{"type": "date"},
+					"session_id":        map[string]interface{}{"type": "keyword"},
+					"session_end_time":  map[string]interface{}{"type": "date"},
+					"duration_seconds":  map[string]interface{}{"type": "long"},
+					"bytes_transferred": map[string]interface{}{"type": "long"},
+					"channel_id":        map[string]interface{}{"type": "keyword"},
+					"channel_name":      map[string]interface{}{"type": "keyword"},
+					"channel_group":     map[string]interface{}{"type": "keyword"},
+					"channel_type":      map[string]interface{}{"type": "keyword"},
+					"channel_stream_id": map[string]interface{}{"type": "keyword"},
+					"user_name":         map[string]interface{}{"type": "keyword"},
+					"client_ip":         map[string]interface{}{"type": "keyword"},
+					"user_agent":        map[string]interface{}{"type": "keyword"},
+					"proxy_mode":        map[string]interface{}{"type": "keyword"},
+				},
 			},
 		},
+		"priority": 200,
 	}
-	body, status, err := c.esRequest(http.MethodPut, "/"+c.userHistoryIndex(), mapping)
+	if body, status, err := c.esRequest(http.MethodPut, "/_index_template/"+name, tpl); err != nil || status >= 300 {
+		return fmt.Errorf("create user_history index template: %d: %s", status, string(body))
+	}
+	body, status, err := c.esRequest(http.MethodPut, "/_data_stream/"+name, nil)
 	if err != nil {
 		return err
 	}
 	if status >= 300 {
-		return fmt.Errorf("create user-history index: %d: %s", status, string(body))
+		return fmt.Errorf("create user_history data stream: %d: %s", status, string(body))
 	}
-	log.Printf("[iptv-proxy] stats: created index %s", c.userHistoryIndex())
+	log.Printf("[iptv-proxy] stats: created data stream %s", name)
 	return nil
 }
 
