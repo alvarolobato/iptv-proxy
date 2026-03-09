@@ -17,8 +17,9 @@ jobs:
       run: |
         export PATH=$(go env GOPATH)/bin:$PATH
         go test -mod vendor -v -race ./...
-        go build -mod vendor
+        go build -mod vendor -ldflags="-X 'github.com/alvarolobato/iptv-proxy/cmd.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
   docker-build:
+    needs: [build, e2e]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2

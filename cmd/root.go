@@ -37,6 +37,9 @@ import (
 	"github.com/spf13/viper"
 )
 
+// BuildDate is the date the binary was built. It is set at build time via ldflags.
+var BuildDate = "unknown"
+
 var cfgFile string
 
 // rootCmd represents the base command when called without any subcommands
@@ -53,7 +56,7 @@ var rootCmd = &cobra.Command{
   # Using config file and env (e.g. Docker; data-folder defaults to /data)
   IPTV_PROXY_M3U_URL="http://example.com/get.php?username=user&password=pass&type=m3u_plus&output=m3u8" IPTV_PROXY_HOSTNAME=localhost iptv-proxy`,
 	Run: func(cmd *cobra.Command, args []string) {
-		log.Printf("[iptv-proxy] Server is starting...")
+		log.Printf("[iptv-proxy] Server is starting... (build date: %s)", BuildDate)
 		m3uURL := viper.GetString("m3u-url")
 		remoteHostURL, err := url.Parse(m3uURL)
 		if err != nil {
@@ -86,6 +89,10 @@ var rootCmd = &cobra.Command{
 			cacheFolder = filepath.Clean(cacheFolder)
 		}
 
+		esIndexPrefix := viper.GetString("es-index-prefix")
+		if esIndexPrefix == "" {
+			esIndexPrefix = "iptv"
+		}
 		conf := &config.ProxyConfig{
 			HostConfig: &config.HostConfiguration{
 				Hostname: viper.GetString("hostname"),
@@ -112,6 +119,12 @@ var rootCmd = &cobra.Command{
 			DebugLoggingEnabled:      viper.GetBool("debug-logging"),
 			CacheFolder:              cacheFolder,
 			UIPort:                   viper.GetInt("ui-port"),
+			ESUrl:                    viper.GetString("es-url"),
+			ESApiKey:                 viper.GetString("es-api-key"),
+			ESUsername:               viper.GetString("es-username"),
+			ESPassword:               viper.GetString("es-password"),
+			ESIndexPrefix:            esIndexPrefix,
+			StatsEnabled:             viper.GetString("es-url") != "",
 		}
 
 		if conf.AdvertisedPort == 0 {
@@ -203,6 +216,12 @@ func init() {
 	rootCmd.Flags().Bool("xtream-api-get", false, "Serve get.php from Xtream API instead of provider endpoint")
 	rootCmd.Flags().String("xmltv-cache-ttl", "", "XMLTV (EPG) cache TTL (e.g. 1h, 30m); empty = no cache")
 	rootCmd.Flags().Int("xmltv-cache-max-entries", 100, "Max cached XMLTV responses")
+	// Elasticsearch stats
+	rootCmd.Flags().String("es-url", "", "Elasticsearch base URL for stats (e.g. https://mycluster.es.io); enables stats when set")
+	rootCmd.Flags().String("es-api-key", "", "Elasticsearch API key (base64 id:key); env: IPTV_PROXY_ES_API_KEY")
+	rootCmd.Flags().String("es-username", "", "Elasticsearch username (alternative to API key)")
+	rootCmd.Flags().String("es-password", "", "Elasticsearch password")
+	rootCmd.Flags().String("es-index-prefix", "iptv", "Prefix for Elasticsearch stats index names (default: iptv)")
 
 	if e := viper.BindPFlags(rootCmd.Flags()); e != nil {
 		log.Fatal("error binding PFlags to viper")

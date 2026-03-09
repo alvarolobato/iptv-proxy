@@ -1,0 +1,51 @@
+// Kibana Dev Console — paste both blocks to create the TSDB channel metrics data stream.
+// Replace "iptv" in index names with your --es-index-prefix if different.
+//
+// This index uses index.mode: time_series (TSDB) which means:
+//   - Each unique set of dimension values defines a separate time series
+//   - Numeric fields are typed as gauge or counter metrics
+//   - Kibana Lens and ES|QL can use rate() and other metric functions
+//   - routing_path determines the internal shard routing key
+//
+// Dimensions — uniquely identify a time series (all must be present in every doc):
+//   channel_id, channel_name, channel_group, channel_type
+//
+// Metric types:
+//   gauge   — point-in-time value (can go up or down)
+//   counter — monotonically increasing total (rate() gives per-second rate)
+
+// Step 1: Create the index template
+PUT _index_template/metrics-iptv.channel_metrics
+{
+  "index_patterns": ["metrics-iptv.channel_metrics"],
+  "data_stream": {},
+  "template": {
+    "settings": {
+      "index.mode": "time_series",
+      "index.routing_path": ["channel_id", "channel_type"]
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "@timestamp":    { "type": "date" },
+
+        "channel_id":    { "type": "keyword", "time_series_dimension": true },
+        "channel_name":  { "type": "keyword", "time_series_dimension": true },
+        "channel_group": { "type": "keyword", "time_series_dimension": true },
+        "channel_type":  { "type": "keyword", "time_series_dimension": true },
+
+        "session_count":           { "type": "long", "time_series_metric": "gauge"   },
+        "active_sessions":         { "type": "long", "time_series_metric": "gauge"   },
+        "unique_users":            { "type": "long", "time_series_metric": "gauge"   },
+
+        "total_duration_seconds":  { "type": "long", "time_series_metric": "counter" },
+        "bytes_transferred":       { "type": "long", "time_series_metric": "counter" },
+        "error_count":             { "type": "long", "time_series_metric": "counter" }
+      }
+    }
+  },
+  "priority": 200
+}
+
+// Step 2: Create the data stream
+PUT _data_stream/metrics-iptv.channel_metrics

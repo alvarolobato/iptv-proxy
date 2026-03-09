@@ -74,4 +74,14 @@ type ProxyConfig struct {
 	CacheFolder string
 	// UIPort is the port for the configuration UI (default 8081; 0 = disabled).
 	UIPort int
+
+	// Elasticsearch stats configuration. All fields are optional; when ESURL is empty, stats are disabled.
+	ESUrl      string // e.g. https://mycluster.es.io
+	ESApiKey   string // base64-encoded id:key
+	ESUsername string // alternative to API key
+	ESPassword string
+	// ESIndexPrefix is the prefix for all stats index names (default: iptv).
+	ESIndexPrefix string
+	// StatsEnabled explicitly enables/disables stats (default: true when ESUrl is set).
+	StatsEnabled bool
 }

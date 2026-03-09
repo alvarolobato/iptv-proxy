@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jamesnetherton/m3u"
 
 	"github.com/alvarolobato/iptv-proxy/pkg/config"
 )
@@ -70,6 +71,7 @@ func (c *Config) runUIServer() {
 	router.GET("/api/replacements", func(ctx *gin.Context) {
 		data, err := c.readReplacementsFile()
 		if err != nil {
+			log.Printf("[iptv-proxy] GET /api/replacements: %v", err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -84,6 +86,7 @@ func (c *Config) runUIServer() {
 			return
 		}
 		if err := c.writeReplacementsFile(&raw); err != nil {
+			log.Printf("[iptv-proxy] PUT /api/replacements: %v", err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -95,6 +98,7 @@ func (c *Config) runUIServer() {
 	router.GET("/api/settings", func(ctx *gin.Context) {
 		file, err := c.readSettingsFileStruct()
 		if err != nil {
+			log.Printf("[iptv-proxy] GET /api/settings: %v", err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -112,12 +116,16 @@ func (c *Config) runUIServer() {
 			return
 		}
 		if err := c.writeSettingsFile(&s); err != nil {
+			log.Printf("[iptv-proxy] PUT /api/settings: %v", err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		c.applyLiveSettings(&s)
 		ctx.Status(http.StatusOK)
 	})
+
+	// Stats API endpoints (Elasticsearch-backed; no-ops when ES not configured)
+	c.registerStatsRoutes(router)
 
 	// Serve embedded React UI (SPA fallback for /settings etc.)
 	router.NoRoute(serveStaticUI)
@@ -363,6 +371,8 @@ func (c *Config) writeSettingsFile(s *config.SettingsJSON) error {
 
 // applyLiveSettings applies filter lists and replacements from s to the running config and regenerates the proxyfied M3U.
 // Only safe-to-reload-at-runtime fields are applied (inclusions, exclusions, replacements); port/hostname etc. are unchanged.
+// We restore the full playlist from fullPlaylistTracks before re-filtering so that the served M3U always reflects the
+// current inclusion/exclusion rules applied to the full source list (not to a previously filtered subset).
 func (c *Config) applyLiveSettings(s *config.SettingsJSON) {
 	if s == nil {
 		return
@@ -381,6 +391,11 @@ func (c *Config) applyLiveSettings(s *config.SettingsJSON) {
 		}
 	}
 	c.settings = &sCopy
+	// Restore full playlist so marshallInto applies current filters to the full list (not to already-filtered tracks).
+	if len(c.fullPlaylistTracks) > 0 {
+		c.playlist.Tracks = make([]m3u.Track, len(c.fullPlaylistTracks))
+		copy(c.playlist.Tracks, c.fullPlaylistTracks)
+	}
 	if err := c.playlistInitialization(); err != nil {
 		log.Printf("[iptv-proxy] applyLiveSettings: playlistInitialization: %v", err)
 	}

@@ -31,6 +31,7 @@ import (
 
 	"github.com/jamesnetherton/m3u"
 	"github.com/alvarolobato/iptv-proxy/pkg/config"
+	"github.com/alvarolobato/iptv-proxy/pkg/stats"
 	uuid "github.com/satori/go.uuid"
 )
 
@@ -76,6 +77,9 @@ type Config struct {
 	endpointAntiColision string
 
 	xmltvCache *responseCache
+
+	// statsCollector records session events to Elasticsearch (or no-ops when ES is not configured).
+	statsCollector stats.Collector
 }
 
 // NewServer initialize a new server configuration. settings is optional (from settings.json); when set, replacements come from it.
@@ -105,8 +109,28 @@ func NewServer(proxyConfig *config.ProxyConfig, settings *config.SettingsJSON, d
 		track:                nil,
 		proxyfiedM3UPath:     defaultProxyfiedM3UPath,
 		endpointAntiColision: endpointAntiColision,
+		statsCollector:       &stats.NoopCollector{},
 	}
 	cfg.xmltvCache = newResponseCache(proxyConfig.XMLTVCacheTTL, proxyConfig.XMLTVCacheMaxEntries)
+
+	// Initialize Elasticsearch stats collector when URL is configured.
+	if proxyConfig.StatsEnabled && proxyConfig.ESUrl != "" {
+		esCfg := stats.ESConfig{
+			URL:         proxyConfig.ESUrl,
+			APIKey:      proxyConfig.ESApiKey,
+			Username:    proxyConfig.ESUsername,
+			Password:    proxyConfig.ESPassword,
+			IndexPrefix: proxyConfig.ESIndexPrefix,
+		}
+		esCollector, err := stats.NewESCollector(esCfg)
+		if err != nil {
+			log.Printf("[iptv-proxy] WARN: could not initialize stats collector: %v; stats will be disabled", err)
+		} else {
+			cfg.statsCollector = esCollector
+			log.Printf("[iptv-proxy] Stats: Elasticsearch collector initialized (prefix: %s)", proxyConfig.ESIndexPrefix)
+		}
+	}
+
 	return cfg, nil
 }
 
@@ -355,6 +379,36 @@ func getGroupTitle(track m3u.Track) string {
 		}
 	}
 	return ""
+}
+
+// getTvgName returns the tvg-name tag value, falling back to track.Name.
+// Used as the canonical cross-provider channel identifier in stats.
+func getTvgName(track m3u.Track) string {
+	for _, t := range track.Tags {
+		if t.Name == "tvg-name" && t.Value != "" {
+			return t.Value
+		}
+	}
+	return track.Name
+}
+
+// lookupTrackByStreamID finds a track in the playlist whose URI basename (without extension)
+// matches the given Xtream stream ID. Returns nil if not found.
+func (c *Config) lookupTrackByStreamID(streamID string) *m3u.Track {
+	if streamID == "" {
+		return nil
+	}
+	for i := range c.fullPlaylistTracks {
+		t := &c.fullPlaylistTracks[i]
+		base := path.Base(t.URI)
+		if idx := strings.LastIndex(base, "."); idx > 0 {
+			base = base[:idx]
+		}
+		if base == streamID {
+			return t
+		}
+	}
+	return nil
 }
 
 // matchInclusionExclusion returns true if the track should be kept.

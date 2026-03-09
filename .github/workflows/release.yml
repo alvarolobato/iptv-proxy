@@ -10,7 +10,44 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+
+      - name: Run unit tests
+        run: go test -mod=vendor -v -race ./...
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        run: npm install
+        working-directory: web/frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: web/frontend
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: web/frontend
+
+      - name: Run e2e tests
+        run: npm run e2e
+        working-directory: web/frontend
+        env:
+          CI: true
+
   build:
+    needs: [test]
     strategy:
       matrix:
         include:
@@ -47,7 +84,8 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          go build -mod=vendor -ldflags="-s -w" -o iptv-proxy${{ matrix.suffix }} .
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          go build -mod=vendor -ldflags="-s -w -X 'github.com/alvarolobato/iptv-proxy/cmd.BuildDate=${BUILD_DATE}'" -o iptv-proxy${{ matrix.suffix }} .
           if [ "${{ matrix.goos }}" = "windows" ]; then
             zip iptv-proxy_${{ matrix.goos }}_${{ matrix.goarch }}.zip iptv-proxy${{ matrix.suffix }}
           else
