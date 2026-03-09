@@ -5,28 +5,28 @@ The configuration UI lets you view groups and channels from your playlist and ma
 ## Enabling the UI
 
 1. Set **`--ui-port`** to a port number (e.g. `9090`). The UI server will listen on that port.
-2. Set **`--json-folder`** so the proxy (and UI) can read and write `replacements.json` (e.g. `./data` or `/data` in Docker).
+2. The proxy uses **`--data-folder`** for settings and replacements (default **`/data`**, so with Docker you can mount a volume at `/data` and omit `IPTV_PROXY_DATA_FOLDER`).
 
 Example:
 
 ```bash
-./iptv-proxy --m3u-url "http://..." --port 8080 --ui-port 9090 --json-folder ./data
+./iptv-proxy --m3u-url "http://..." --port 8080 --ui-port 9090 --data-folder ./data
 ```
 
 Then open **http://localhost:9090** in your browser.
 
-With Docker, expose the UI port and set both env vars:
+With Docker, expose the UI port and mount a volume at `/data` (no need to set `IPTV_PROXY_DATA_FOLDER`):
 
 ```bash
 docker run -d -p 8080:8080 -p 9090:9090 \
   -v "$(pwd)/data:/data" \
-  -e M3U_URL="..." -e JSON_FOLDER=/data -e IPTV_PROXY_UI_PORT=9090 \
+  -e M3U_URL="..." -e IPTV_PROXY_UI_PORT=9090 \
   alobato/iptv-proxy2:latest
 ```
 
 ## Stub replacements.json
 
-When the server starts and `--json-folder` is set, it creates an empty **replacements.json** in that folder if the file does not exist. The stub contains:
+When the server starts and `--data-folder` is set (it defaults to `/data`), it creates an empty **replacements.json** in that folder if the file does not exist. The stub contains:
 
 ```json
 {
@@ -42,7 +42,7 @@ You can then edit it via the UI or by hand.
 
 - **Groups** — Table of all unique `group-title` values from the current playlist (from the M3U source). Empty if no M3U is loaded or the playlist is empty.
 - **Channels** — Table of all channels: name, group, tvg-id, tvg-name, tvg-logo. Use this to see what names and groups you might want to rewrite.
-- **Replacements** — Edit the three rule sections (global, names, groups). Add or remove regex rules, then click **Save replacements.json**. Changes are written to the file in `--json-folder`; **restart the proxy** for them to take effect on the playlist.
+- **Replacements** — Edit the three rule sections (global, names, groups). Add or remove regex rules, then click **Save replacements.json**. Changes are written to the file in `--data-folder`; **restart the proxy** for them to take effect on the playlist.
 
 ## API (for integrations)
 

@@ -48,7 +48,7 @@ All options can be set by:
 |------|---------|-------------|
 | `--group-regex` | (none) | Include only tracks whose `group-title` tag matches this regex. Empty = all. |
 | `--channel-regex` | (none) | Include only tracks whose channel name matches this regex. Empty = all. |
-| `--json-folder` | (none) | Folder containing `replacements.json` for name/group replacement rules. Recommended: `/data` when using Docker; mount a volume and set `--json-folder /data`. |
+| `--data-folder` | `/data` | Folder for `settings.json` and replacement rules (e.g. `replacements.json`). Default `/data` so Docker with a volume works without setting `IPTV_PROXY_DATA_FOLDER`. |
 | `--divide-by-res` | false | Add resolution suffix to group titles (FHD / HD / SD) and strip resolution from channel names. |
 
 See [replacements.md](replacements.md) for the replacements file format.
@@ -68,7 +68,7 @@ See [replacements.md](replacements.md) for the replacements file format.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--ui-port` | 0 | Port for the configuration UI (0 = disabled). See [ui.md](ui.md). Requires `--json-folder`. |
+| `--ui-port` | 0 | Port for the configuration UI (0 = disabled). See [ui.md](ui.md). Uses `--data-folder` (default `/data`) for settings and replacements. |
 
 ---
 
@@ -92,6 +92,6 @@ advertised-port: 443
 https: true
 user: myuser
 password: mypass
-json-folder: /data
+data-folder: /data
 xmltv-cache-ttl: 1h
 ```

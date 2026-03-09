@@ -50,8 +50,8 @@ var rootCmd = &cobra.Command{
   # Input type: M3U URL with auth and data folder (settings.json, UI)
   iptv-proxy --m3u-url "http://example.com/get.php?username=user&password=pass&type=m3u_plus&output=m3u8" --hostname localhost --user myuser --password mypass --data-folder ./data --ui-port 9090
 
-  # Using config file and env (e.g. Docker)
-  IPTV_PROXY_M3U_URL="http://example.com/get.php?username=user&password=pass&type=m3u_plus&output=m3u8" IPTV_PROXY_HOSTNAME=localhost iptv-proxy --data-folder /data`,
+  # Using config file and env (e.g. Docker; data-folder defaults to /data)
+  IPTV_PROXY_M3U_URL="http://example.com/get.php?username=user&password=pass&type=m3u_plus&output=m3u8" IPTV_PROXY_HOSTNAME=localhost iptv-proxy`,
 	Run: func(cmd *cobra.Command, args []string) {
 		log.Printf("[iptv-proxy] Server is starting...")
 		m3uURL := viper.GetString("m3u-url")
@@ -183,7 +183,7 @@ func init() {
 	rootCmd.Flags().Int("port", 8080, "Port the proxy listens on")
 	rootCmd.Flags().String("user", "", "Proxy auth username (M3U and Xtream); set via flag, env, or Settings UI")
 	rootCmd.Flags().String("password", "", "Proxy auth password (M3U and Xtream); set via flag, env, or Settings UI")
-	rootCmd.Flags().String("data-folder", "", "Folder for settings.json and replacement rules (enables UI when --ui-port set)")
+	rootCmd.Flags().String("data-folder", "/data", "Folder for settings.json and replacement rules (enables UI when --ui-port set). Default /data for Docker volume.")
 	rootCmd.Flags().Int("ui-port", 8081, "Port for configuration UI (default 8081, one above proxy port 8080); set 0 to disable")
 	rootCmd.Flags().Bool("hide-passwords", false, "Hide passwords in startup log and URL examples")
 	// Alphabetical

@@ -3,7 +3,7 @@
 The replacements file lets you rewrite channel names and group titles in the M3U playlist using regex rules. This is useful to clean up provider names, fix encoding, or standardise labels.
 
 - **File name:** `replacements.json`
-- **Location:** Inside the folder set by `--json-folder` (e.g. `/data`). So the full path is `<json-folder>/replacements.json`.
+- **Location:** Inside the folder set by `--data-folder` (default `/data`). So the full path is `<data-folder>/replacements.json`.
 
 ---
 
@@ -93,13 +93,12 @@ See [replacements-example.json](replacements-example.json) in this folder. Minim
 
 1. Create a folder on the host, e.g. `./data`.
 2. Put `replacements.json` inside it.
-3. Run with a volume and `--json-folder /data`:
+3. Run with a volume at `/data` (the default data folder; no need to set `IPTV_PROXY_DATA_FOLDER`):
 
    ```bash
    docker run -d -p 8080:8080 \
      -v $(pwd)/data:/data \
      -e M3U_URL="..." \
-     -e JSON_FOLDER="/data" \
      alobato/iptv-proxy2
    ```
 
