@@ -186,34 +186,35 @@ func (c *ESCollector) RecordSessionEnd(ctx context.Context, sessionID string, ev
 			event.DurationSeconds = int64(dur.Seconds())
 		}
 	}
-	acc := c.getOrCreateAccum(event)
-	if acc.activeSessions > 0 {
-		acc.activeSessions--
+	if ok {
+		acc := c.getOrCreateAccum(event)
+		if acc.activeSessions > 0 {
+			acc.activeSessions--
+		}
+		acc.totalDurationSecs += event.DurationSeconds
+		acc.totalBytes += event.BytesTransferred
+		// Write to user history only for sessions we tracked (so channel and session stats stay in sync).
+		userSess := UserSession{
+			Timestamp:        active.startTime,
+			SessionID:        sessionID,
+			EndTime:          now,
+			DurationSeconds:  event.DurationSeconds,
+			BytesTransferred: event.BytesTransferred,
+			ChannelID:        event.ChannelID,
+			ChannelName:      event.ChannelName,
+			ChannelGroup:     event.ChannelGroup,
+			ChannelType:      event.ChannelType,
+			ChannelStreamID:  event.ChannelStreamID,
+			UserName:         event.UserName,
+			ClientIP:         event.ClientIP,
+			UserAgent:        event.UserAgent,
+			ProxyMode:        event.ProxyMode,
+		}
+		c.enqueue(c.userHistoryIndex(), userSess)
 	}
-	acc.totalDurationSecs += event.DurationSeconds
-	acc.totalBytes += event.BytesTransferred
 	c.mu.Unlock()
 
 	c.enqueue(c.sessionsIndex(), event)
-
-	// also write to user history
-	userSess := UserSession{
-		Timestamp:        active.startTime,
-		SessionID:        sessionID,
-		EndTime:          now,
-		DurationSeconds:  event.DurationSeconds,
-		BytesTransferred: event.BytesTransferred,
-		ChannelID:        event.ChannelID,
-		ChannelName:      event.ChannelName,
-		ChannelGroup:     event.ChannelGroup,
-		ChannelType:      event.ChannelType,
-		ChannelStreamID:  event.ChannelStreamID,
-		UserName:         event.UserName,
-		ClientIP:         event.ClientIP,
-		UserAgent:        event.UserAgent,
-		ProxyMode:        event.ProxyMode,
-	}
-	c.enqueue(c.userHistoryIndex(), userSess)
 }
 
 func (c *ESCollector) RecordSessionError(ctx context.Context, sessionID string, event SessionEvent) {
@@ -242,11 +243,11 @@ func (c *ESCollector) RecordSessionError(ctx context.Context, sessionID string, 
 		if event.ProxyMode == "" {
 			event.ProxyMode = active.event.ProxyMode
 		}
-	}
-	acc := c.getOrCreateAccum(event)
-	acc.errorCount++
-	if acc.activeSessions > 0 {
-		acc.activeSessions--
+		acc := c.getOrCreateAccum(event)
+		acc.errorCount++
+		if acc.activeSessions > 0 {
+			acc.activeSessions--
+		}
 	}
 	c.mu.Unlock()
 

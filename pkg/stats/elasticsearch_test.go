@@ -2,7 +2,12 @@ package stats
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -107,4 +112,165 @@ func TestESCollector_Integration(t *testing.T) {
 	}
 
 	t.Log("Integration test PASSED")
+}
+
+// mockESServer records documents indexed to the channel_metrics index for assertion.
+type mockESServer struct {
+	*httptest.Server
+	channelMetricsDocs []ChannelMetric
+	mu                 sync.Mutex
+}
+
+func newMockESServer(t *testing.T) *mockESServer {
+	m := &mockESServer{}
+	m.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			// _data_stream/... exists check: return 404 so bootstrap creates templates/streams
+			w.WriteHeader(http.StatusNotFound)
+		case http.MethodPut:
+			// index template, data stream
+			w.WriteHeader(http.StatusOK)
+		case http.MethodPost:
+			// _doc index
+			if r.URL.Path != "" && len(r.URL.Path) > 1 {
+				// path like /metrics-iptv-stats-test.channel_metrics/_doc
+				if strings.Contains(r.URL.Path, "channel_metrics") {
+					var doc ChannelMetric
+					if err := json.NewDecoder(r.Body).Decode(&doc); err != nil {
+						t.Logf("decode channel_metrics doc: %v", err)
+					} else {
+						m.mu.Lock()
+						m.channelMetricsDocs = append(m.channelMetricsDocs, doc)
+						m.mu.Unlock()
+					}
+				}
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"_index":"x","_id":"1"}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	return m
+}
+
+func TestChannelAndSessionStatsConsistency(t *testing.T) {
+	mock := newMockESServer(t)
+	defer mock.Close()
+
+	cfg := ESConfig{
+		URL:                mock.URL,
+		IndexPrefix:        "iptv-stats-test",
+		InsecureSkipVerify: true,
+	}
+	collector, err := NewESCollector(cfg)
+	if err != nil {
+		t.Fatalf("NewESCollector: %v", err)
+	}
+	defer collector.Close()
+
+	ctx := context.Background()
+	ch1 := SessionEvent{
+		ChannelID:    "ch1",
+		ChannelName:  "Channel 1",
+		ChannelGroup: "Group1",
+		ChannelType:  ChannelTypeLive,
+		ProxyMode:    ProxyModeM3U,
+	}
+
+	// Simulate 3 sessions on ch1 that start and end with known durations.
+	sessionIDs := make([]string, 3)
+	durations := []int64{10, 20, 30}
+	for i := 0; i < 3; i++ {
+		sessionIDs[i] = collector.RecordSessionStart(ctx, ch1)
+		if sessionIDs[i] == "" {
+			t.Fatalf("RecordSessionStart %d: expected non-empty sessionID", i)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		collector.RecordSessionEnd(ctx, sessionIDs[i], SessionEvent{
+			DurationSeconds:  durations[i],
+			BytesTransferred: int64(100 * (i + 1)),
+		})
+	}
+
+	// Ghost end: session that never started. Must not be counted in channel metrics.
+	collector.RecordSessionEnd(ctx, "unknown-session-id", SessionEvent{
+		DurationSeconds:  100,
+		BytesTransferred: 9999,
+	})
+
+	collector.Flush()
+	collector.flushRollup()
+	collector.Flush() // wait for rollup index writes
+
+	mock.mu.Lock()
+	docs := mock.channelMetricsDocs
+	mock.mu.Unlock()
+
+	var totalSessionCount, totalDurationSecs, totalBytes int64
+	for _, d := range docs {
+		totalSessionCount += d.SessionCount
+		totalDurationSecs += d.TotalDurationSecs
+		totalBytes += d.TotalBytes
+	}
+
+	// Channel stats must match session activity: 3 sessions started, total duration 10+20+30.
+	if totalSessionCount != 3 {
+		t.Errorf("channel_metrics session_count sum: want 3, got %d", totalSessionCount)
+	}
+	if totalDurationSecs != 60 {
+		t.Errorf("channel_metrics total_duration_seconds sum: want 60, got %d (ghost end must not be counted)", totalDurationSecs)
+	}
+	// 100+200+300 = 600 bytes from the 3 sessions only
+	if totalBytes != 600 {
+		t.Errorf("channel_metrics bytes_transferred sum: want 600, got %d", totalBytes)
+	}
+}
+
+func TestChannelAndSessionStatsConsistency_ErrorSession(t *testing.T) {
+	mock := newMockESServer(t)
+	defer mock.Close()
+
+	cfg := ESConfig{
+		URL:                mock.URL,
+		IndexPrefix:        "iptv-stats-err-test",
+		InsecureSkipVerify: true,
+	}
+	collector, err := NewESCollector(cfg)
+	if err != nil {
+		t.Fatalf("NewESCollector: %v", err)
+	}
+	defer collector.Close()
+
+	ctx := context.Background()
+	ch1 := SessionEvent{
+		ChannelID:    "ch-err",
+		ChannelName:  "Channel Err",
+		ChannelGroup: "Group1",
+		ChannelType:  ChannelTypeLive,
+	}
+
+	sid := collector.RecordSessionStart(ctx, ch1)
+	collector.RecordSessionError(ctx, sid, SessionEvent{ErrorMessage: "fail"})
+
+	// Ghost error: unknown session. Must not be counted in channel metrics.
+	collector.RecordSessionError(ctx, "unknown-session", SessionEvent{ErrorMessage: "ghost"})
+
+	collector.Flush()
+	collector.flushRollup()
+	collector.Flush()
+
+	mock.mu.Lock()
+	docs := mock.channelMetricsDocs
+	mock.mu.Unlock()
+
+	var totalErrorCount int64
+	for _, d := range docs {
+		totalErrorCount += d.ErrorCount
+	}
+	if totalErrorCount != 1 {
+		t.Errorf("channel_metrics error_count sum: want 1 (only the tracked session), got %d", totalErrorCount)
+	}
 }
