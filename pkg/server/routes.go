@@ -48,6 +48,32 @@ func (c *Config) routes(r *gin.RouterGroup) {
 }
 
 func (c *Config) xtreamRoutes(r *gin.RouterGroup) {
+	// Xtream passthrough mode (multi-user): forward client Xtream credentials to upstream.
+	if c.XtreamPassthrough {
+		// get.php: do NOT use proxy-auth middleware, because Xtream clients use username/password
+		// for provider login, not for proxy authentication.
+		r.GET("/get.php", c.xtreamGetPassthrough)
+		r.POST("/get.php", c.xtreamGetPassthrough)
+
+		// Player API and XMLTV: passthrough, otherwise proxy auth conflicts with Xtream credentials.
+		r.GET("/player_api.php", c.xtreamPlayerAPIPassthroughGET)
+		r.POST("/player_api.php", c.xtreamPlayerAPIPassthroughPOST)
+		r.GET("/xmltv.php", c.xtreamXMLTVPassthrough)
+
+		// Stream routes with client credentials in the path.
+		r.GET("/:user/:pass/:id", c.xtreamStreamHandlerPassthrough)
+		r.GET("/live/:user/:pass/:id", c.xtreamStreamLivePassthrough)
+		r.GET("/timeshift/:user/:pass/:duration/:start/:id", c.xtreamStreamTimeshiftPassthrough)
+		r.GET("/movie/:user/:pass/:id", c.xtreamStreamMoviePassthrough)
+		r.GET("/series/:user/:pass/:id", c.xtreamStreamSeriesPassthrough)
+
+		// HLS dispatch and play routes (token-based) remain supported.
+		// Single catch-all: Gin cannot have both /hls/:chunk and /hls/:token/:chunk (conflicting wildcards)
+		r.GET("/hls/*path", c.xtreamHlsDispatch)
+		r.GET("/play/:token/:type", c.xtreamStreamPlay)
+		return
+	}
+
 	user, pass := c.pathAuthUser(), c.pathAuthPassword()
 
 	getphp := gin.HandlerFunc(c.xtreamGet)

@@ -26,8 +26,7 @@ const SETTINGS_DEFAULTS = {
   advertised_port: 0,
   hostname: '',
   https: false,
-  user: '',
-  password: '',
+
   xtream_user: '',
   xtream_password: '',
   xtream_base_url: '',
@@ -62,8 +61,7 @@ const SETTINGS_FIELDS = [
   { key: 'advertised_port', label: 'Advertised port', type: 'number', category: 'serving', help: 'Port in generated URLs (0 = use port); set when behind reverse proxy.', example: '0 or 443' },
   { key: 'hostname', label: 'Hostname', type: 'text', category: 'serving', help: 'Hostname or IP used in generated playlist/stream URLs.', example: 'localhost' },
   { key: 'https', label: 'HTTPS', type: 'boolean', category: 'serving', help: 'Use https in generated URLs.', example: '' },
-  { key: 'user', label: 'User', type: 'text', category: 'serving', help: 'Proxy auth username (M3U and Xtream).', example: '' },
-  { key: 'password', label: 'Password', type: 'text', category: 'serving', help: 'Proxy auth password (M3U and Xtream).', example: '' },
+
   { key: 'ui_port', label: 'UI port', type: 'number', category: 'serving', help: 'Port for configuration UI (0 = disabled).', example: '8081' },
   { key: 'xtream_user', label: 'Xtream user', type: 'text', category: 'xtream', help: 'Xtream provider username.', example: '' },
   { key: 'xtream_password', label: 'Xtream password', type: 'text', category: 'xtream', help: 'Xtream provider password.', example: '' },
@@ -287,18 +285,16 @@ export function SettingsPage() {
                         <EuiFieldNumber
                           value={String(formValues[f.key] ?? '')}
                           onChange={(e) => updateForm(f.key, e.target.value)}
+                          fullWidth
                           disabled={loading}
-                          min={0}
-                          style={{ maxWidth: 140 }}
                         />
                       ) : (
                         <EuiFieldText
-                          value={formValues[f.key] || ''}
+                          value={formValues[f.key] ?? ''}
                           onChange={(e) => updateForm(f.key, e.target.value)}
-                          disabled={loading}
                           fullWidth
-                          placeholder={!isFromSettings ? (getDefault(f.key) || '') : undefined}
-                          style={!isFromSettings && (formValues[f.key] || '') === (getDefault(f.key) || '') ? { color: '#69707d' } : undefined}
+                          disabled={loading}
+                          className={isFromSettings ? '' : 'euiTextColor--subdued'}
                         />
                       )}
                     </EuiFormRow>
@@ -307,7 +303,6 @@ export function SettingsPage() {
                 <EuiSpacer size="l" />
               </div>
             ))}
-            <EuiSpacer size="m" />
             <EuiButton type="submit" fill isLoading={saving} isDisabled={loading}>
               Save settings
             </EuiButton>
@@ -317,24 +312,21 @@ export function SettingsPage() {
 
       {selectedTabId === 'raw' && (
         <>
-          <p className="euiTextColor--subdued">
-            Edit the full settings.json. Include replacements here if you edit manually.
-          </p>
+          <EuiTextArea
+            fullWidth
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+            isInvalid={jsonInvalid}
+            aria-label="Raw settings JSON"
+            rows={20}
+          />
           <EuiSpacer size="m" />
-          <EuiFormRow label="settings.json" fullWidth>
-            <EuiTextArea
-              value={raw}
-              onChange={(e) => setRaw(e.target.value)}
-              fullWidth
-              rows={20}
-              isInvalid={jsonInvalid}
-              isLoading={loading}
-              readOnly={loading}
-            />
-          </EuiFormRow>
-          <EuiSpacer size="m" />
-          <EuiButton onClick={saveRaw} fill isLoading={saving} isDisabled={loading || jsonInvalid}>
-            Save settings
+          <EuiButton
+            onClick={saveRaw}
+            isDisabled={jsonInvalid || saving}
+            fill
+          >
+            Save JSON
           </EuiButton>
         </>
       )}
