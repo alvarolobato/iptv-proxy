@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jamesnetherton/m3u"
@@ -123,6 +124,13 @@ func (c *Config) runUIServer() {
 		c.applyLiveSettings(&s)
 		ctx.Status(http.StatusOK)
 	})
+
+	// User management API
+	router.GET("/api/users", c.apiListUsers)
+	router.POST("/api/users", c.apiCreateUser)
+	router.PUT("/api/users/:username", c.apiUpdateUser)
+	router.DELETE("/api/users/:username", c.apiDeleteUser)
+	router.GET("/api/users/:username/watch", c.apiUserWatch)
 
 	// Stats API endpoints (Elasticsearch-backed; no-ops when ES not configured)
 	c.registerStatsRoutes(router)
@@ -478,5 +486,191 @@ func toReplacementRuleSlice(r []Replacement) []config.ReplacementRule {
 		out = append(out, config.ReplacementRule{Replace: x.Replace, With: x.With})
 	}
 	return out
+}
+
+// --- User management API ---
+
+func (c *Config) apiListUsers(ctx *gin.Context) {
+	c.mu.RLock()
+	users := c.ProxyConfig.AllUsers()
+	c.mu.RUnlock()
+	ctx.JSON(http.StatusOK, gin.H{"users": users})
+}
+
+type createUserRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Enabled  *bool  `json:"enabled"` // pointer to distinguish absent from false
+}
+
+func (c *Config) apiCreateUser(ctx *gin.Context) {
+	var req createUserRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if !config.ValidUsername(req.Username) {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid username: must be 1-64 alphanumeric, hyphen, or underscore characters and not a reserved name"})
+		return
+	}
+	if req.Password == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "password is required"})
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Check uniqueness (against default user and existing users).
+	if req.Username == c.ProxyConfig.User.String() {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "username already exists"})
+		return
+	}
+	for _, u := range c.ProxyConfig.Users {
+		if u.Username == req.Username {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "username already exists"})
+			return
+		}
+	}
+
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	newUser := config.User{
+		Username:  req.Username,
+		Password:  req.Password,
+		Enabled:   enabled,
+		CreatedAt: now,
+	}
+	c.ProxyConfig.Users = append(c.ProxyConfig.Users, newUser)
+
+	if err := c.persistUsers(); err != nil {
+		// Roll back in-memory change.
+		c.ProxyConfig.Users = c.ProxyConfig.Users[:len(c.ProxyConfig.Users)-1]
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	log.Printf("[iptv-proxy] AUDIT: User created: %s", req.Username)
+	ctx.JSON(http.StatusCreated, config.UserInfo{
+		Username:  newUser.Username,
+		Enabled:   newUser.Enabled,
+		CreatedAt: newUser.CreatedAt,
+	})
+}
+
+type updateUserRequest struct {
+	Password *string `json:"password"`
+	Enabled  *bool   `json:"enabled"`
+}
+
+func (c *Config) apiUpdateUser(ctx *gin.Context) {
+	username := ctx.Param("username")
+	var req updateUserRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Check if it's the default user.
+	if username == c.ProxyConfig.User.String() {
+		if req.Password != nil && *req.Password != "" {
+			c.ProxyConfig.Password = config.CredentialString(*req.Password)
+		}
+		if err := c.persistUsers(); err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		log.Printf("[iptv-proxy] AUDIT: User updated: %s", username)
+		ctx.JSON(http.StatusOK, config.UserInfo{Username: username, Enabled: true, IsDefault: true})
+		return
+	}
+
+	// Find in Users slice.
+	for i := range c.ProxyConfig.Users {
+		if c.ProxyConfig.Users[i].Username == username {
+			if req.Password != nil && *req.Password != "" {
+				c.ProxyConfig.Users[i].Password = *req.Password
+			}
+			if req.Enabled != nil {
+				c.ProxyConfig.Users[i].Enabled = *req.Enabled
+			}
+			if err := c.persistUsers(); err != nil {
+				ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			log.Printf("[iptv-proxy] AUDIT: User updated: %s", username)
+			ctx.JSON(http.StatusOK, config.UserInfo{
+				Username:  c.ProxyConfig.Users[i].Username,
+				Enabled:   c.ProxyConfig.Users[i].Enabled,
+				CreatedAt: c.ProxyConfig.Users[i].CreatedAt,
+			})
+			return
+		}
+	}
+	ctx.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+}
+
+func (c *Config) apiDeleteUser(ctx *gin.Context) {
+	username := ctx.Param("username")
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if username == c.ProxyConfig.User.String() {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete the default user"})
+		return
+	}
+
+	for i := range c.ProxyConfig.Users {
+		if c.ProxyConfig.Users[i].Username == username {
+			c.ProxyConfig.Users = append(c.ProxyConfig.Users[:i], c.ProxyConfig.Users[i+1:]...)
+			if err := c.persistUsers(); err != nil {
+				ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			log.Printf("[iptv-proxy] AUDIT: User deleted: %s", username)
+			ctx.Status(http.StatusNoContent)
+			return
+		}
+	}
+	ctx.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+}
+
+func (c *Config) apiUserWatch(ctx *gin.Context) {
+	username := ctx.Param("username")
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if username == c.ProxyConfig.User.String() {
+		ctx.JSON(http.StatusOK, gin.H{"username": username, "password": c.ProxyConfig.Password.String()})
+		return
+	}
+	for _, u := range c.ProxyConfig.Users {
+		if u.Username == username {
+			ctx.JSON(http.StatusOK, gin.H{"username": u.Username, "password": u.Password})
+			return
+		}
+	}
+	ctx.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+}
+
+// persistUsers writes the current users list to settings.json.
+// Caller must hold c.mu write lock.
+func (c *Config) persistUsers() error {
+	s, err := c.readSettingsFileStruct()
+	if err != nil {
+		return err
+	}
+	// Update the default user's password in settings.
+	s.User = c.ProxyConfig.User.String()
+	s.Password = c.ProxyConfig.Password.String()
+	s.Users = c.ProxyConfig.Users
+	return c.writeSettingsFile(&s)
 }
 

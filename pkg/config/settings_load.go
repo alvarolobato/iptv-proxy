@@ -189,5 +189,9 @@ func ApplyTo(s *SettingsJSON, conf *ProxyConfig, parseDuration func(string) time
 		conf.UIPort = s.UIPort
 		warn("ui_port")
 	}
+	if len(s.Users) > 0 {
+		conf.Users = make([]User, len(s.Users))
+		copy(conf.Users, s.Users)
+	}
 	return overridden
 }

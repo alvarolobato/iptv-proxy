@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/jamesnetherton/m3u"
 	"github.com/alvarolobato/iptv-proxy/pkg/config"
@@ -80,6 +81,9 @@ type Config struct {
 
 	// statsCollector records session events to Elasticsearch (or no-ops when ES is not configured).
 	statsCollector stats.Collector
+
+	// mu protects the Users list during CRUD operations.
+	mu sync.RWMutex
 }
 
 // NewServer initialize a new server configuration. settings is optional (from settings.json); when set, replacements come from it.

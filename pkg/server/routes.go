@@ -48,8 +48,6 @@ func (c *Config) routes(r *gin.RouterGroup) {
 }
 
 func (c *Config) xtreamRoutes(r *gin.RouterGroup) {
-	user, pass := c.pathAuthUser(), c.pathAuthPassword()
-
 	getphp := gin.HandlerFunc(c.xtreamGet)
 	if c.XtreamGenerateApiGet {
 		getphp = c.xtreamApiGet
@@ -60,24 +58,22 @@ func (c *Config) xtreamRoutes(r *gin.RouterGroup) {
 	r.GET("/player_api.php", c.authenticate, c.xtreamPlayerAPIGET)
 	r.POST("/player_api.php", c.appAuthenticate, c.xtreamPlayerAPIPOST)
 	r.GET("/xmltv.php", c.authenticate, c.xtreamXMLTV)
-	r.GET(fmt.Sprintf("/%s/%s/:id", user, pass), c.xtreamStreamHandler)
-	r.GET(fmt.Sprintf("/live/%s/%s/:id", user, pass), c.xtreamStreamLive)
-	r.GET(fmt.Sprintf("/timeshift/%s/%s/:duration/:start/:id", user, pass), c.xtreamStreamTimeshift)
-	r.GET(fmt.Sprintf("/movie/%s/%s/:id", user, pass), c.xtreamStreamMovie)
-	r.GET(fmt.Sprintf("/series/%s/%s/:id", user, pass), c.xtreamStreamSeries)
-	r.GET(fmt.Sprintf("/hlsr/:token/%s/%s/:channel/:hash/:chunk", user, pass), c.xtreamHlsrStream)
+	r.GET("/:user/:password/:id", c.authenticatePath, c.xtreamStreamHandler)
+	r.GET("/live/:user/:password/:id", c.authenticatePath, c.xtreamStreamLive)
+	r.GET("/timeshift/:user/:password/:duration/:start/:id", c.authenticatePath, c.xtreamStreamTimeshift)
+	r.GET("/movie/:user/:password/:id", c.authenticatePath, c.xtreamStreamMovie)
+	r.GET("/series/:user/:password/:id", c.authenticatePath, c.xtreamStreamSeries)
+	r.GET("/hlsr/:token/:user/:password/:channel/:hash/:chunk", c.authenticatePath, c.xtreamHlsrStream)
 	// Single catch-all: Gin cannot have both /hls/:chunk and /hls/:token/:chunk (conflicting wildcards)
 	r.GET("/hls/*path", c.xtreamHlsDispatch)
 	r.GET("/play/:token/:type", c.xtreamStreamPlay)
-	r.GET(fmt.Sprintf("/play/%s/%s/:id", user, pass), c.xtreamStreamHandler)
+	r.GET("/play/:user/:password/:id", c.authenticatePath, c.xtreamStreamHandler)
 }
 
 func (c *Config) m3uRoutes(r *gin.RouterGroup) {
 	r.GET("/"+c.M3UFileName, c.authenticate, c.getM3U)
 	// XXX Private need: for external Android app
 	r.POST("/"+c.M3UFileName, c.authenticate, c.getM3U)
-
-	user, pass := c.pathAuthUser(), c.pathAuthPassword()
 
 	for i, track := range c.playlist.Tracks {
 		trackConfig := &Config{
@@ -86,9 +82,9 @@ func (c *Config) m3uRoutes(r *gin.RouterGroup) {
 		}
 
 		if strings.HasSuffix(track.URI, ".m3u8") {
-			r.GET(fmt.Sprintf("/%s/%s/%s/%d/:id", c.endpointAntiColision, user, pass, i), trackConfig.m3u8ReverseProxy)
+			r.GET(fmt.Sprintf("/%s/:user/:password/%d/:id", c.endpointAntiColision, i), c.authenticatePath, trackConfig.m3u8ReverseProxy)
 		} else {
-			r.GET(fmt.Sprintf("/%s/%s/%s/%d/%s", c.endpointAntiColision, user, pass, i, path.Base(track.URI)), trackConfig.reverseProxy)
+			r.GET(fmt.Sprintf("/%s/:user/:password/%d/%s", c.endpointAntiColision, i, path.Base(track.URI)), c.authenticatePath, trackConfig.reverseProxy)
 		}
 	}
 }

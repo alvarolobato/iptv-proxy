@@ -48,6 +48,9 @@ type SettingsJSON struct {
 
 	// UI
 	UIPort int `json:"ui_port,omitempty"`
+
+	// Multi-user
+	Users []User `json:"users,omitempty"`
 }
 
 // ReplacementsInSettings is the replacements section inside settings.json (replaces standalone replacements.json).
@@ -187,6 +190,9 @@ func MergeWithCurrent(file, current SettingsJSON) SettingsJSON {
 	if out.UIPort == 0 {
 		out.UIPort = current.UIPort
 	}
+	if len(out.Users) == 0 {
+		out.Users = current.Users
+	}
 	return out
 }
 
@@ -317,5 +323,21 @@ func SettingsOverridesOnly(current, defaultVal *SettingsJSON) SettingsJSON {
 	if current.UIPort != defaultVal.UIPort {
 		out.UIPort = current.UIPort
 	}
+	if !usersEqual(current.Users, defaultVal.Users) {
+		out.Users = current.Users
+	}
 	return out
+}
+
+// usersEqual returns true if a and b have the same users.
+func usersEqual(a, b []User) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Username != b[i].Username || a[i].Password != b[i].Password || a[i].Enabled != b[i].Enabled || a[i].CreatedAt != b[i].CreatedAt {
+			return false
+		}
+	}
+	return true
 }
