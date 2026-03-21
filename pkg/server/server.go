@@ -324,7 +324,7 @@ func (c *Config) replaceURL(uri string, trackIndex int, xtream bool) (string, er
 		uriPath = strings.ReplaceAll(uriPath, c.XtreamUser.PathEscape(), url.PathEscape(c.pathAuthUser()))
 		uriPath = strings.ReplaceAll(uriPath, c.XtreamPassword.PathEscape(), url.PathEscape(c.pathAuthPassword()))
 	} else {
-		uriPath = path.Join("/", c.endpointAntiColision, c.pathAuthUser(), c.pathAuthPassword(), fmt.Sprintf("%d", trackIndex), path.Base(uriPath))
+		uriPath = path.Join("/", c.endpointAntiColision, url.PathEscape(c.pathAuthUser()), url.PathEscape(c.pathAuthPassword()), fmt.Sprintf("%d", trackIndex), path.Base(uriPath))
 	}
 
 	basicAuth := oriURL.User.String()

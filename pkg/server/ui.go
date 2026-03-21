@@ -645,6 +645,10 @@ func (c *Config) apiDeleteUser(ctx *gin.Context) {
 	ctx.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 }
 
+// apiUserWatch returns username + password for the Watch tab display.
+// Security note: this endpoint is on the UI server (internal port) which has no auth,
+// consistent with GET /api/settings which also returns the default user's password.
+// The UI port should not be exposed publicly (documented in security considerations).
 func (c *Config) apiUserWatch(ctx *gin.Context) {
 	username := ctx.Param("username")
 

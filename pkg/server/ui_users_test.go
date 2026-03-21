@@ -19,6 +19,7 @@ func setupUserTestConfig() *Config {
 			Password: "adminpass",
 			Users: []config.User{
 				{Username: "alice", Password: "alice123", Enabled: true, CreatedAt: "2026-03-21T10:00:00Z"},
+				{Username: "bob", Password: "bob456", Enabled: false, CreatedAt: "2026-03-21T11:00:00Z"},
 			},
 		},
 	}
@@ -49,8 +50,8 @@ func TestAPIListUsers(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
-	if len(resp.Users) != 2 {
-		t.Fatalf("expected 2 users, got %d", len(resp.Users))
+	if len(resp.Users) != 3 {
+		t.Fatalf("expected 3 users, got %d", len(resp.Users))
 	}
 	if !resp.Users[0].IsDefault {
 		t.Error("first user should be default")
@@ -72,8 +73,8 @@ func TestAPICreateUser_Success(t *testing.T) {
 	if w.Code != 201 {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	if len(c.ProxyConfig.Users) != 2 {
-		t.Errorf("expected 2 users in config, got %d", len(c.ProxyConfig.Users))
+	if len(c.ProxyConfig.Users) != 3 {
+		t.Errorf("expected 3 users in config, got %d", len(c.ProxyConfig.Users))
 	}
 }
 
@@ -226,8 +227,8 @@ func TestAPIDeleteUser_Success(t *testing.T) {
 	if w.Code != 204 {
 		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
 	}
-	if len(c.ProxyConfig.Users) != 0 {
-		t.Errorf("expected 0 users, got %d", len(c.ProxyConfig.Users))
+	if len(c.ProxyConfig.Users) != 1 {
+		t.Errorf("expected 1 user after deleting alice, got %d", len(c.ProxyConfig.Users))
 	}
 }
 

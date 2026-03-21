@@ -450,13 +450,12 @@ function WatchTab({ addToast }) {
 
   // Fetch password for selected user.
   useEffect(() => {
+    setWatchCreds(null);
     if (!selectedUser) return;
     fetch(`/api/users/${encodeURIComponent(selectedUser)}/watch`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data) setWatchCreds(data);
-      })
-      .catch(() => {});
+      .then((data) => setWatchCreds(data || null))
+      .catch(() => setWatchCreds(null));
   }, [selectedUser]);
 
   const activeUser = watchCreds?.username || settings?.user || '';

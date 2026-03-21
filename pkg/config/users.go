@@ -50,19 +50,24 @@ func (p *ProxyConfig) FindUser(username string) *User {
 }
 
 // ValidateCredentials checks username/password against all users (default + Users slice).
-// Returns the matched username or "" if invalid. Uses constant-time comparison.
+// Returns the matched username or "" if invalid. Uses constant-time comparison
+// for both username and password to avoid timing-based user enumeration.
 // Returns "" for disabled users.
 func (p *ProxyConfig) ValidateCredentials(username, password string) string {
 	if username == "" {
 		return ""
 	}
-	// Check default user.
-	if constantTimeEqual(username, p.User.String()) && constantTimeEqual(password, p.Password.String()) {
+	// Check default user — evaluate both comparisons to avoid short-circuit timing leak.
+	userMatch := constantTimeEqual(username, p.User.String())
+	passMatch := constantTimeEqual(password, p.Password.String())
+	if userMatch && passMatch {
 		return username
 	}
 	// Check additional users.
 	for _, u := range p.Users {
-		if constantTimeEqual(username, u.Username) && constantTimeEqual(password, u.Password) {
+		uMatch := constantTimeEqual(username, u.Username)
+		pMatch := constantTimeEqual(password, u.Password)
+		if uMatch && pMatch {
 			if !u.Enabled {
 				return ""
 			}
