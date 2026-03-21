@@ -31,6 +31,10 @@ const goldenSettings = {
   group_exclusions: ['^Group2$'],
   replacements: { 'global-replacements': [], 'names-replacements': [], 'groups-replacements': [] },
   ui_port: uiPort,
+  users: [
+    { username: 'testuser1', password: 'testpass1', enabled: true, created_at: '2026-03-21T10:00:00Z' },
+    { username: 'disableduser', password: 'dispass', enabled: false, created_at: '2026-03-21T11:00:00Z' },
+  ],
 };
 fs.writeFileSync(settingsPath, JSON.stringify(goldenSettings, null, 2), 'utf8');
 

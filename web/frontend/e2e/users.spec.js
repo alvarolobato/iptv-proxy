@@ -49,10 +49,11 @@ test.describe('Users tab', () => {
     await page.goto('/');
     await page.getByRole('tab', { name: 'Users' }).click();
     await expect(page.getByText('usertest')).toBeVisible({ timeout: 10000 });
-    await page.getByRole('button', { name: '+ Add user' }).click();
-    await expect(page.getByText('Add user')).toBeVisible();
-    await expect(page.getByText('Username')).toBeVisible();
-    await expect(page.getByText('Password')).toBeVisible();
+    await page.getByRole('button', { name: /Add user/ }).click();
+    // Modal should open with form fields
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('label:has-text("Username")')).toBeVisible();
+    await expect(page.locator('label:has-text("Password")')).toBeVisible();
   });
 
   test('Edit button opens edit modal', async ({ page }) => {
