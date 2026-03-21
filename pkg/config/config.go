@@ -49,6 +49,11 @@ type ProxyConfig struct {
 	XtreamPassword       CredentialString
 	XtreamBaseURL        string
 	XtreamGenerateApiGet bool
+	// XtreamPassthrough enables multi-user passthrough mode where client Xtream
+	// credentials are forwarded directly to the upstream provider instead of a
+	// single configured account.
+	XtreamPassthrough bool
+
 	M3UCacheExpiration   int
 	XMLTVCacheTTL        time.Duration // 0 = no cache
 	XMLTVCacheMaxEntries int           // max cached responses (0 = use default)
@@ -60,12 +65,12 @@ type ProxyConfig struct {
 	HTTPS                bool
 	User, Password       CredentialString
 	// M3U filter (from settings.json only) and replacement
-	GroupInclusions    []string // keep only if group-title matches any (empty = all)
-	GroupExclusions    []string // drop if group-title matches any
-	ChannelInclusions  []string // keep only if channel name matches any (empty = all)
-	ChannelExclusions  []string // drop if channel name matches any
-	DataFolder         string   // folder for settings.json and replacement rules (--data-folder)
-	DivideByRes  bool   // divide groups by resolution (FHD/HD/SD)
+	GroupInclusions   []string // keep only if group-title matches any (empty = all)
+	GroupExclusions   []string // drop if group-title matches any
+	ChannelInclusions []string // keep only if channel name matches any (empty = all)
+	ChannelExclusions []string // drop if channel name matches any
+	DataFolder        string   // folder for settings.json and replacement rules (--data-folder)
+	DivideByRes       bool     // divide groups by resolution (FHD/HD/SD)
 	// UseXtreamAdvancedParsing uses alternate parsing for some Xtream requests to preserve raw provider response (default false).
 	UseXtreamAdvancedParsing bool
 	// DebugLoggingEnabled enables verbose debug logging when true.

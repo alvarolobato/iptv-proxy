@@ -32,8 +32,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/alvarolobato/iptv-proxy/pkg/stats"
+	"github.com/gin-gonic/gin"
 )
 
 // countingReader wraps an io.Reader and counts bytes read.
@@ -112,7 +112,7 @@ func (c *Config) streamWithStats(ctx *gin.Context, oriURL *url.URL, chanInfo sta
 		return
 	}
 
-	mergeHttpHeader(req.Header, ctx.Request.Header)
+	mergeHTTPHeader(req.Header, ctx.Request.Header)
 	if rangeH := ctx.Request.Header.Get("Range"); rangeH != "" {
 		req.Header.Set("Range", rangeH)
 	}
@@ -134,7 +134,7 @@ func (c *Config) streamWithStats(ctx *gin.Context, oriURL *url.URL, chanInfo sta
 	cr := &countingReader{r: resp.Body}
 	startTime := time.Now()
 
-	mergeHttpHeader(ctx.Writer.Header(), resp.Header)
+	mergeHTTPHeader(ctx.Writer.Header(), resp.Header)
 	ctx.Status(resp.StatusCode)
 	ctx.Stream(func(w io.Writer) bool {
 		io.Copy(w, cr) // nolint: errcheck
@@ -193,7 +193,7 @@ func (vs values) contains(s string) bool {
 	return false
 }
 
-func mergeHttpHeader(dst, src http.Header) {
+func mergeHTTPHeader(dst, src http.Header) {
 	for k, vv := range src {
 		for _, v := range vv {
 			if values(dst.Values(k)).contains(v) {
@@ -211,6 +211,10 @@ type authRequest struct {
 }
 
 func (c *Config) authenticate(ctx *gin.Context) {
+	// If proxy auth is not configured, allow requests through.
+	if c.ProxyConfig.User.String() == "" && c.ProxyConfig.Password.String() == "" {
+		return
+	}
 	var authReq authRequest
 	if err := ctx.Bind(&authReq); err != nil {
 		ctx.AbortWithError(http.StatusBadRequest, err) // nolint: errcheck
@@ -222,6 +226,10 @@ func (c *Config) authenticate(ctx *gin.Context) {
 }
 
 func (c *Config) appAuthenticate(ctx *gin.Context) {
+	// If proxy auth is not configured, allow requests through.
+	if c.ProxyConfig.User.String() == "" && c.ProxyConfig.Password.String() == "" {
+		return
+	}
 	contents, err := ioutil.ReadAll(ctx.Request.Body)
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
