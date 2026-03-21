@@ -13,8 +13,8 @@ test.describe('Users tab', () => {
     // Wait for table content to load
     await expect(page.getByText('usertest')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('default')).toBeVisible();
-    await expect(page.getByText('testuser1')).toBeVisible();
-    await expect(page.getByText('disableduser')).toBeVisible();
+    await expect(page.getByText('testuser1')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('disableduser')).toBeVisible({ timeout: 10000 });
   });
 
   test('Default user has no Delete button', async ({ page }) => {

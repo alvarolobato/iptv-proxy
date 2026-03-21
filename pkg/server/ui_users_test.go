@@ -46,7 +46,9 @@ func TestAPIListUsers(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	var resp struct{ Users []config.UserInfo }
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 	if len(resp.Users) != 2 {
 		t.Fatalf("expected 2 users, got %d", len(resp.Users))
 	}
@@ -267,7 +269,9 @@ func TestAPIUserWatch(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	var resp map[string]string
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 	if resp["username"] != "alice" || resp["password"] != "alice123" {
 		t.Errorf("unexpected response: %v", resp)
 	}
@@ -285,7 +289,9 @@ func TestAPIUserWatch_DefaultUser(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	var resp map[string]string
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 	if resp["password"] != "adminpass" {
 		t.Errorf("expected adminpass, got %q", resp["password"])
 	}
@@ -307,7 +313,9 @@ func TestAuthenticate_MultiUser(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	var resp map[string]string
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 	if resp["user"] != "alice" {
 		t.Errorf("expected alice, got %q", resp["user"])
 	}

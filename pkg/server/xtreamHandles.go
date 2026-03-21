@@ -56,8 +56,14 @@ func (c *Config) cacheXtreamM3u(playlist *m3u.Playlist, cacheName string) error 
 	xtreamM3uCacheLock.Lock()
 	defer xtreamM3uCacheLock.Unlock()
 
-	tmp := *c
-	tmp.playlist = playlist
+	tmp := &Config{
+		ProxyConfig:          c.ProxyConfig,
+		settings:             c.settings,
+		defaultSettings:      c.defaultSettings,
+		playlist:             playlist,
+		endpointAntiColision: c.endpointAntiColision,
+		statsCollector:       c.statsCollector,
+	}
 
 	path := filepath.Join(os.TempDir(), uuid.NewV4().String()+".iptv-proxy.m3u")
 	f, err := os.Create(path)

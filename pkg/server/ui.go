@@ -365,6 +365,10 @@ func (c *Config) writeSettingsFile(s *config.SettingsJSON) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
+	// Preserve users from in-memory state (users are managed via /api/users, not /api/settings).
+	if len(s.Users) == 0 && len(c.ProxyConfig.Users) > 0 {
+		s.Users = c.ProxyConfig.Users
+	}
 	toWrite := s
 	if c.defaultSettings != nil {
 		overrides := config.SettingsOverridesOnly(s, c.defaultSettings)
