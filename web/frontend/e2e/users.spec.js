@@ -42,7 +42,8 @@ test.describe('Users tab', () => {
     await page.getByRole('tab', { name: 'Users' }).click();
     await expect(page.getByText('disableduser')).toBeVisible({ timeout: 10000 });
     const userRow = page.locator('table tbody tr').filter({ hasText: 'disableduser' });
-    await expect(userRow.getByText('Disabled')).toBeVisible();
+    // Use exact match to avoid matching the username substring "disabled" in "disableduser"
+    await expect(userRow.getByText('Disabled', { exact: true })).toBeVisible();
   });
 
   test('Add user button opens modal', async ({ page }) => {
