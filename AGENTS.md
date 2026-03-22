@@ -129,22 +129,50 @@ The Playwright config starts the server via `webServer` (see `web/frontend/scrip
 
 ---
 
-## Learnings from sessions (CI, UI, stream URLs)
+## Conventions and gotchas
 
-### Build and CI
+### Go build
 
-- **`pkg/config/settings.go` must be committed.** `settings_load.go` references `SettingsJSON`, `ReplacementsInSettings`, and `ReplacementRule` defined in `settings.go`. If `settings.go` is missing, `go build` and golangci-lint fail with "undefined: SettingsJSON" etc. on CI.
+- **All type-definition files must be committed together.** `settings_load.go` depends on types in `settings.go`. Run `go build ./...` locally before pushing to catch missing files.
 
-### Stream URLs and Channels table
+### Filtering and replacements
 
-- **Valid proxy URLs:** In `pkg/server/server.go`, `replaceURL()` builds the proxy stream URL. If `HostConfig.Hostname` is empty, the URL would be `http://:9090/...` (invalid). Use a fallback: when hostname is empty, use `"localhost"`; when `AdvertisedPort` is 0, use `HostConfig.Port`. This ensures stream URLs are always valid so "Open stream" opens the real URL and "Copy link" works.
-- **Stream URL for Xtream M3U:** When the input is an Xtream-style M3U URL (`get.php?type=m3u_plus`), the server still parses the M3U and runs `marshallInto(..., false)`, so `trackIndexInPlaylist` is set. In `channelsProcessed()` (ui.go), set `stream_url` whenever `uriToIndex` is available, not only when `!xtream`, so the Channels table gets Open stream links for Xtream M3U too.
+- **Always filter from the original unfiltered source.** `server.go` keeps `fullPlaylistTracks` — never mutate or discard it. When settings change, re-filter from the full list, not from a previously filtered copy.
+- **Filtering must apply to all code paths.** Both M3U (`marshallInto`) and Xtream (`filterXtreamResponse`, `applyXtreamReplacements`) must run the same inclusion/exclusion/replacement logic. When adding or changing filter behavior, verify it works in both paths.
 
-### Channels table: Open stream link (UI)
+### Stream URLs
 
-- **Use a native `<a href={streamUrl}>`** for "Open stream". Avoid using `EuiButtonEmpty` with `href` for this link: ensure the element is a plain anchor so the browser shows the URL on hover, right-click "Copy link" works, and opening in a new tab doesn’t result in `about:blank#blocked`. Set `title={streamUrl}` and tooltip content to the URL for visibility.
-- **Action order:** Put the play (Open stream) action to the **right** of "Add to inclusions" and "Add to exclusions" so that when a channel has no `stream_url`, the other two buttons don’t shift and alignment stays consistent.
+- **`replaceURL()` must always produce a valid URL.** When `HostConfig.Hostname` is empty, fall back to `"localhost"`; when `AdvertisedPort` is 0, use `HostConfig.Port`.
+- **Xtream M3U also gets stream URLs.** In `channelsProcessed()` (ui.go), set `stream_url` whenever `uriToIndex` is available, not only when `!xtream`.
 
-### EUI icon hack
+### UI (EUI / React)
 
-- The configuration UI uses Elastic UI (EUI). Icons used in the app (e.g. `play`, `plusInCircleFilled`, `copyClipboard`) must be **registered** in `web/frontend/src/icons_hack.jsx` (import from EUI assets and add to `appendIconComponentCache`). If an icon isn’t registered, it may not render. After adding an icon, rebuild the frontend (`npm run build`) so the embedded UI in `pkg/server/uistatic/` is updated.
+- **Register every EUI icon** in `web/frontend/src/icons_hack.jsx` via `appendIconComponentCache`. Unregistered icons render as empty. Rebuild the frontend after adding icons.
+- **Use native `<a href>` for stream links**, not `EuiButtonEmpty` with `href` (which causes `about:blank#blocked`). Set `title` to the URL for hover visibility.
+- **Action order in tables:** Put "Open stream" to the right of filter actions so missing stream URLs don’t shift button alignment.
+
+### Elasticsearch
+
+- **Only use the `metrics-` index prefix for TSDB data streams.** ES serverless rejects non-TSDB indices with that prefix. Current layout: `metrics-iptv.channel_metrics` (TSDB), `iptv.sessions` and `iptv.user_history` (regular).
+
+---
+
+## Documentation maintenance
+
+### Decision log
+
+When a change picks one approach over another, introduces a dependency, changes the data model, or modifies the public API, add an entry to [`docs/design/DECISIONS.md`](docs/design/DECISIONS.md). Use the lightweight ADR format already in that file.
+
+### When you discover a gotcha
+
+If you hit a non-obvious problem or discover an undocumented constraint, **update the "Conventions and gotchas" section above** with the preventive rule — not a log of the problem, just the guidance to avoid it. Keep entries short and imperative.
+
+### Documentation updates required
+
+| Change type | Update |
+|---|---|
+| New feature or flag | `docs/configuration.md`, `DECISIONS.md` entry |
+| Architecture change | `AGENTS.md` (architecture section), `DECISIONS.md` entry |
+| Bug fix with non-obvious cause | `AGENTS.md` conventions section (add the preventive rule) |
+| UI change | `AGENTS.md` conventions section if gotcha found |
+| New dependency | `DECISIONS.md` entry |
