@@ -1,0 +1,64 @@
+# Delete the PR Docker image from ghcr.io when a PR is closed or merged.
+name: PR Docker Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [master, main]
+
+jobs:
+  delete-pr-image:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Delete PR image from ghcr.io
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = `pr-${{ github.event.pull_request.number }}`;
+            const packageName = context.repo.repo;
+            const owner = context.repo.owner;
+
+            // List all versions of the package
+            let versions;
+            try {
+              const resp = await github.rest.packages.getAllPackageVersionsForPackageOwnedByUser({
+                package_type: 'container',
+                package_name: packageName,
+                username: owner,
+              });
+              versions = resp.data;
+            } catch (e) {
+              // Try org endpoint if user endpoint fails
+              const resp = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
+                package_type: 'container',
+                package_name: packageName,
+                org: owner,
+              });
+              versions = resp.data;
+            }
+
+            const target = versions.find(v => v.metadata?.container?.tags?.includes(tag));
+            if (!target) {
+              console.log(`No image found with tag ${tag}, nothing to delete.`);
+              return;
+            }
+
+            try {
+              await github.rest.packages.deletePackageVersionForUser({
+                package_type: 'container',
+                package_name: packageName,
+                username: owner,
+                package_version_id: target.id,
+              });
+            } catch (e) {
+              await github.rest.packages.deletePackageVersionForOrg({
+                package_type: 'container',
+                package_name: packageName,
+                org: owner,
+                package_version_id: target.id,
+              });
+            }
+
+            console.log(`Deleted image tag ${tag} (version id ${target.id})`);
