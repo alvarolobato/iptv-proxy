@@ -148,3 +148,25 @@ The Playwright config starts the server via `webServer` (see `web/frontend/scrip
 ### EUI icon hack
 
 - The configuration UI uses Elastic UI (EUI). Icons used in the app (e.g. `play`, `plusInCircleFilled`, `copyClipboard`) must be **registered** in `web/frontend/src/icons_hack.jsx` (import from EUI assets and add to `appendIconComponentCache`). If an icon isn’t registered, it may not render. After adding an icon, rebuild the frontend (`npm run build`) so the embedded UI in `pkg/server/uistatic/` is updated.
+
+---
+
+## Documentation maintenance
+
+### Decision log
+
+When a change picks one approach over another, introduces a dependency, changes the data model, or modifies the public API, add an entry to [`docs/design/DECISIONS.md`](docs/design/DECISIONS.md). Use the lightweight ADR format already in that file.
+
+### Session-end retrospective
+
+At the end of a session where you hit a non-obvious problem, wasted time on a wrong approach, or discovered something undocumented, add a short entry to [`docs/design/SESSION_LEARNINGS.md`](docs/design/SESSION_LEARNINGS.md). Use the template in that file. Skip if the session was straightforward — this should not be a chore on every session.
+
+### Documentation updates required
+
+| Change type | Update |
+|---|---|
+| New feature or flag | `docs/configuration.md`, `DECISIONS.md` entry |
+| Architecture change | `AGENTS.md` (architecture section), `DECISIONS.md` entry |
+| Bug fix with non-obvious cause | `SESSION_LEARNINGS.md` entry |
+| UI change | `docs/ui.md`, `AGENTS.md` learnings if gotcha found |
+| New dependency | `DECISIONS.md` entry |
