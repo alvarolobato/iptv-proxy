@@ -351,17 +351,6 @@ func (c *Config) xtreamStreamLive(ctx *gin.Context) {
 	c.xtreamStreamWithChannelInfo(ctx, rpURL, streamID, stats.ChannelTypeLive)
 }
 
-func (c *Config) xtreamStreamPlay(ctx *gin.Context) {
-	token := ctx.Param("token")
-	t := ctx.Param("type")
-	rpURL, err := url.Parse(fmt.Sprintf("%s/play/%s/%s", c.XtreamBaseURL, token, t))
-	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-		return
-	}
-	c.xtreamStreamWithChannelInfo(ctx, rpURL, token, stats.ChannelTypeLive)
-}
-
 // xtreamPlayDispatch handles /play/*path, dispatching between:
 //   - /play/:token/:type (2 segments, no auth)
 //   - /play/:user/:password/:id (3 segments, auth required)
