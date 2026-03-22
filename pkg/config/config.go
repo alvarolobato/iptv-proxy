@@ -91,10 +91,11 @@ type ProxyConfig struct {
 
 // User represents a proxy user with credentials.
 type User struct {
-	Username  string `json:"username"`
-	Password  string `json:"password"`
-	Enabled   bool   `json:"enabled"`
-	CreatedAt string `json:"created_at,omitempty"` // RFC3339
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	Description string `json:"description,omitempty"`
+	Enabled     bool   `json:"enabled"`
+	CreatedAt   string `json:"created_at,omitempty"` // RFC3339
 	// Phase 2 fields (forward compatibility):
 	GroupAllowList   []string `json:"group_allow_list,omitempty"`
 	GroupBlockList   []string `json:"group_block_list,omitempty"`

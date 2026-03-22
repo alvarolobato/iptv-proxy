@@ -22,10 +22,11 @@ func ValidUsername(username string) bool {
 
 // UserInfo is a user entry returned by AllUsers (password omitted).
 type UserInfo struct {
-	Username  string `json:"username"`
-	Enabled   bool   `json:"enabled"`
-	CreatedAt string `json:"created_at,omitempty"`
-	IsDefault bool   `json:"is_default"`
+	Username    string `json:"username"`
+	Description string `json:"description,omitempty"`
+	Enabled     bool   `json:"enabled"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	IsDefault   bool   `json:"is_default"`
 }
 
 // MigrateDefaultUser ensures the CLI --user/--password is present in the Users slice.
@@ -86,9 +87,10 @@ func (p *ProxyConfig) AllUsers() []UserInfo {
 	out := make([]UserInfo, 0, len(p.Users))
 	for _, u := range p.Users {
 		out = append(out, UserInfo{
-			Username:  u.Username,
-			Enabled:   u.Enabled,
-			CreatedAt: u.CreatedAt,
+			Username:    u.Username,
+			Description: u.Description,
+			Enabled:     u.Enabled,
+			CreatedAt:   u.CreatedAt,
 		})
 	}
 	return out

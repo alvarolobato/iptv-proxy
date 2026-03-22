@@ -1842,6 +1842,7 @@ function UsersTab({ addToast }) {
 
   const columns = [
     { field: 'username', name: 'Username' },
+    { field: 'description', name: 'Description', render: (val) => val || '—' },
     { field: 'enabled', name: 'Status', render: (val) => (
       <EuiBadge color={val ? 'success' : 'warning'}>{val ? 'Enabled' : 'Disabled'}</EuiBadge>
     )},
@@ -1900,11 +1901,24 @@ function UsersTab({ addToast }) {
 function UserFormModal({ mode, user, onClose, onSaved }) {
   const [username, setUsername] = useState(user?.username || '');
   const [password, setPassword] = useState('');
+  const [description, setDescription] = useState(user?.description || '');
   const [enabled, setEnabled] = useState(user?.enabled ?? true);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [loadingPassword, setLoadingPassword] = useState(false);
 
   const isEdit = mode === 'edit';
+
+  // In edit mode, fetch the current password so the user can see/modify it.
+  useEffect(() => {
+    if (!isEdit || !user?.username) return;
+    setLoadingPassword(true);
+    fetch(`/api/users/${encodeURIComponent(user.username)}/watch`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data?.password) setPassword(data.password); })
+      .catch(() => {})
+      .finally(() => setLoadingPassword(false));
+  }, [isEdit, user?.username]);
 
   const handleSave = () => {
     setError(null);
@@ -1916,8 +1930,8 @@ function UserFormModal({ mode, user, onClose, onSaved }) {
     const url = isEdit ? `/api/users/${encodeURIComponent(user.username)}` : '/api/users';
     const method = isEdit ? 'PUT' : 'POST';
     const body = isEdit
-      ? JSON.stringify({ ...(password ? { password } : {}), enabled })
-      : JSON.stringify({ username, password, enabled });
+      ? JSON.stringify({ password, description, enabled })
+      : JSON.stringify({ username, password, description, enabled });
 
     fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body })
       .then((r) => {
@@ -1944,11 +1958,20 @@ function UserFormModal({ mode, user, onClose, onSaved }) {
           />
         </EuiFormRow>
         <EuiSpacer size="m" />
-        <EuiFormRow label={isEdit ? 'New password (leave blank to keep)' : 'Password'}>
+        <EuiFormRow label="Password">
           <EuiFieldPassword
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             type="dual"
+            isLoading={loadingPassword}
+          />
+        </EuiFormRow>
+        <EuiSpacer size="m" />
+        <EuiFormRow label="Description" helpText="Optional note (e.g. device, person, purpose)">
+          <EuiFieldText
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="e.g. Living room TV, Mom's phone"
           />
         </EuiFormRow>
         <EuiSpacer size="m" />

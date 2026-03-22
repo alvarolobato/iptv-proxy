@@ -520,9 +520,10 @@ func (c *Config) apiListUsers(ctx *gin.Context) {
 }
 
 type createUserRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Enabled  *bool  `json:"enabled"` // pointer to distinguish absent from false
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	Description string `json:"description"`
+	Enabled     *bool  `json:"enabled"` // pointer to distinguish absent from false
 }
 
 func (c *Config) apiCreateUser(ctx *gin.Context) {
@@ -557,10 +558,11 @@ func (c *Config) apiCreateUser(ctx *gin.Context) {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	newUser := config.User{
-		Username:  req.Username,
-		Password:  req.Password,
-		Enabled:   enabled,
-		CreatedAt: now,
+		Username:    req.Username,
+		Password:    req.Password,
+		Description: req.Description,
+		Enabled:     enabled,
+		CreatedAt:   now,
 	}
 	c.ProxyConfig.Users = append(c.ProxyConfig.Users, newUser)
 
@@ -579,8 +581,9 @@ func (c *Config) apiCreateUser(ctx *gin.Context) {
 }
 
 type updateUserRequest struct {
-	Password *string `json:"password"`
-	Enabled  *bool   `json:"enabled"`
+	Password    *string `json:"password"`
+	Description *string `json:"description"`
+	Enabled     *bool   `json:"enabled"`
 }
 
 func (c *Config) apiUpdateUser(ctx *gin.Context) {
@@ -599,6 +602,9 @@ func (c *Config) apiUpdateUser(ctx *gin.Context) {
 			if req.Password != nil && *req.Password != "" {
 				c.ProxyConfig.Users[i].Password = *req.Password
 			}
+			if req.Description != nil {
+				c.ProxyConfig.Users[i].Description = *req.Description
+			}
 			if req.Enabled != nil {
 				c.ProxyConfig.Users[i].Enabled = *req.Enabled
 			}
@@ -608,9 +614,10 @@ func (c *Config) apiUpdateUser(ctx *gin.Context) {
 			}
 			log.Printf("[iptv-proxy] AUDIT: User updated: %s", username)
 			ctx.JSON(http.StatusOK, config.UserInfo{
-				Username:  c.ProxyConfig.Users[i].Username,
-				Enabled:   c.ProxyConfig.Users[i].Enabled,
-				CreatedAt: c.ProxyConfig.Users[i].CreatedAt,
+				Username:    c.ProxyConfig.Users[i].Username,
+				Description: c.ProxyConfig.Users[i].Description,
+				Enabled:     c.ProxyConfig.Users[i].Enabled,
+				CreatedAt:   c.ProxyConfig.Users[i].CreatedAt,
 			})
 			return
 		}
