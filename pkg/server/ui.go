@@ -582,6 +582,10 @@ func (c *Config) apiUpdateUser(ctx *gin.Context) {
 
 	// Check if it's the default user.
 	if username == c.ProxyConfig.User.String() {
+		if req.Enabled != nil && !*req.Enabled {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "cannot disable the default user"})
+			return
+		}
 		if req.Password != nil && *req.Password != "" {
 			c.ProxyConfig.Password = config.CredentialString(*req.Password)
 		}

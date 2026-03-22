@@ -1894,7 +1894,7 @@ function UsersTab({ addToast }) {
           confirmButtonText="Delete"
           buttonColor="danger"
         >
-          <p>This will permanently remove the user. Active sessions will be terminated.</p>
+          <p>This will permanently remove the user. Future connections using this account will fail, but existing sessions may continue until they reconnect.</p>
         </EuiConfirmModal>
       )}
     </Fragment>
