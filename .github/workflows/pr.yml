@@ -62,39 +62,40 @@ jobs:
         with:
           script: |
             const image = `${{ secrets.DOCKERHUB_USERNAME }}/iptv-proxy2:pr-${{ github.event.pull_request.number }}`;
-            const body = `<!-- pr-docker-test -->
-## Test this PR locally with Docker
-
-Credentials are loaded from \`~/.config/iptv-proxy/env\`. Create it once:
-
-\`\`\`bash
-mkdir -p ~/.config/iptv-proxy
-
-# Xtream provider
-cat > ~/.config/iptv-proxy/env <<EOF
-IPTV_PROXY_XTREAM_BASE_URL=http://your-provider
-IPTV_PROXY_XTREAM_USER=youruser
-IPTV_PROXY_XTREAM_PASSWORD=yourpass
-EOF
-
-# Or M3U provider
-cat > ~/.config/iptv-proxy/env <<EOF
-IPTV_PROXY_M3U_URL=http://your-provider/playlist.m3u
-EOF
-\`\`\`
-
-Then run this PR:
-
-\`\`\`bash
-docker pull ${image}
-docker run --rm -p 8080:8080 -p 8081:8081 \\
-  --env-file ~/.config/iptv-proxy/env \\
-  ${image} \\
-  --hostname localhost --port 8080 --ui-port 8081
-\`\`\`
-
-Configuration UI: http://localhost:8081
-`;
+            const body = [
+              '<!-- pr-docker-test -->',
+              '## Test this PR locally with Docker',
+              '',
+              'Credentials are loaded from `~/.config/iptv-proxy/env`. Create it once:',
+              '',
+              '```bash',
+              'mkdir -p ~/.config/iptv-proxy',
+              '',
+              '# Xtream provider',
+              "cat > ~/.config/iptv-proxy/env <<'EOF'",
+              'IPTV_PROXY_XTREAM_BASE_URL=http://your-provider',
+              'IPTV_PROXY_XTREAM_USER=youruser',
+              'IPTV_PROXY_XTREAM_PASSWORD=yourpass',
+              'EOF',
+              '',
+              '# Or M3U provider',
+              "cat > ~/.config/iptv-proxy/env <<'EOF'",
+              'IPTV_PROXY_M3U_URL=http://your-provider/playlist.m3u',
+              'EOF',
+              '```',
+              '',
+              'Then run this PR:',
+              '',
+              '```bash',
+              `docker pull ${image}`,
+              `docker run --rm -p 8080:8080 -p 8081:8081 \\`,
+              `  --env-file ~/.config/iptv-proxy/env \\`,
+              `  ${image} \\`,
+              `  --hostname localhost --port 8080 --ui-port 8081`,
+              '```',
+              '',
+              'Configuration UI: http://localhost:8081',
+            ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
