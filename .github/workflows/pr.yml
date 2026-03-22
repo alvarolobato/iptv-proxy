@@ -54,6 +54,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/iptv-proxy2:pr-${{ github.event.pull_request.number }}
 
       - name: Comment on PR with test instructions
@@ -62,27 +63,38 @@ jobs:
           script: |
             const image = `${{ secrets.DOCKERHUB_USERNAME }}/iptv-proxy2:pr-${{ github.event.pull_request.number }}`;
             const body = `<!-- pr-docker-test -->
-            ## Test this PR locally with Docker
+## Test this PR locally with Docker
 
-            \`\`\`bash
-            docker pull ${image}
+Credentials are loaded from \`~/.config/iptv-proxy/env\`. Create it once:
 
-            # M3U proxy (replace flags with your own values)
-            docker run --rm -p 8080:8080 -p 8081:8081 \\
-              ${image} \\
-              --m3u-url "http://your-provider/playlist.m3u" \\
-              --hostname localhost --port 8080 --ui-port 8081
+\`\`\`bash
+mkdir -p ~/.config/iptv-proxy
 
-            # Xtream proxy (replace flags with your own values)
-            docker run --rm -p 8080:8080 -p 8081:8081 \\
-              ${image} \\
-              --xtream-base-url "http://your-provider" \\
-              --xtream-user youruser --xtream-password yourpass \\
-              --hostname localhost --port 8080 --ui-port 8081
-            \`\`\`
+# Xtream provider
+cat > ~/.config/iptv-proxy/env <<EOF
+IPTV_PROXY_XTREAM_BASE_URL=http://your-provider
+IPTV_PROXY_XTREAM_USER=youruser
+IPTV_PROXY_XTREAM_PASSWORD=yourpass
+EOF
 
-            Configuration UI: http://localhost:8081
-            `;
+# Or M3U provider
+cat > ~/.config/iptv-proxy/env <<EOF
+IPTV_PROXY_M3U_URL=http://your-provider/playlist.m3u
+EOF
+\`\`\`
+
+Then run this PR:
+
+\`\`\`bash
+docker pull ${image}
+docker run --rm -p 8080:8080 -p 8081:8081 \\
+  --env-file ~/.config/iptv-proxy/env \\
+  ${image} \\
+  --hostname localhost --port 8080 --ui-port 8081
+\`\`\`
+
+Configuration UI: http://localhost:8081
+`;
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
