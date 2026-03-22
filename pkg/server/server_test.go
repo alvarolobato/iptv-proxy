@@ -29,9 +29,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/jamesnetherton/m3u"
 
 	"github.com/alvarolobato/iptv-proxy/pkg/config"
+	"github.com/alvarolobato/iptv-proxy/pkg/stats"
 )
 
 func TestNewServer_EmptyRemoteURL(t *testing.T) {
@@ -256,4 +258,29 @@ func TestMarshallInto_GroupExclusionReducesTracks(t *testing.T) {
 	if count != 2 {
 		t.Errorf("track count in file = %d, want 2 (News excluded)", count)
 	}
+}
+
+// TestXtreamRouteRegistration verifies that xtream routes can be registered without panicking.
+// This catches Gin wildcard conflicts (e.g. /play/:token/:type vs /play/:user/:password/:id).
+func TestXtreamRouteRegistration(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	c := &Config{
+		ProxyConfig: &config.ProxyConfig{
+			HostConfig:     &config.HostConfiguration{Hostname: "localhost", Port: 8080},
+			AdvertisedPort: 8080,
+			User:           config.CredentialString("admin"),
+			Password:       config.CredentialString("pass"),
+			XtreamBaseURL:  "http://upstream:8080",
+			XtreamUser:     config.CredentialString("xu"),
+			XtreamPassword: config.CredentialString("xp"),
+		},
+		endpointAntiColision: "test",
+		statsCollector:       &stats.NoopCollector{},
+	}
+
+	// This should not panic.
+	r := gin.New()
+	group := r.Group("")
+	c.xtreamRoutes(group)
 }

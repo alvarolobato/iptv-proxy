@@ -157,6 +157,7 @@ The Playwright config starts the server via `webServer` (see `web/frontend/scrip
 
 ### Multi-user and auth
 
+- **Xtream route conflicts.** Gin does not allow conflicting wildcards at the same path segment. When converting literal user/pass to `:user/:password` params, routes like `/play/:token/:type` and `/play/:user/:password/:id` will panic. Use a catch-all dispatcher (`/play/*path`) for conflicting patterns, similar to the existing `/hls/*path` dispatcher. Routes under unique fixed prefixes (`/live/`, `/movie/`, `/series/`, `/timeshift/`) can safely use `:user/:password` params. Always add a `TestXtreamRouteRegistration` test to catch these panics.
 - **Route params, not literals.** Stream routes use `:user/:password` path params (not hardcoded user/pass literals). Auth is validated by `authenticatePath` middleware. The M3U file is generated with the default user’s credentials and rewritten per-user in `getM3U`.
 - **Credential escaping.** When building proxy URLs in `replaceURL`, always use `url.PathEscape` for credentials. When rewriting credentials in `getM3U`, use the same `url.PathEscape` so the search string matches what was written. Mismatch between generation and rewrite will silently fail for passwords with special characters.
 - **`Config` struct contains `sync.RWMutex`.** Never copy `Config` by value (`tmp := *c`) — this copies the mutex and triggers the `govet` copylocks lint error. Instead, construct a new `&Config{...}` with the fields you need. This applies to `cacheXtreamM3u` and any similar pattern.

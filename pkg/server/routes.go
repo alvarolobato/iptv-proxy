@@ -58,7 +58,9 @@ func (c *Config) xtreamRoutes(r *gin.RouterGroup) {
 	r.GET("/player_api.php", c.authenticate, c.xtreamPlayerAPIGET)
 	r.POST("/player_api.php", c.appAuthenticate, c.xtreamPlayerAPIPOST)
 	r.GET("/xmltv.php", c.authenticate, c.xtreamXMLTV)
-	r.GET("/:user/:password/:id", c.authenticatePath, c.xtreamStreamHandler)
+
+	// Stream routes with user/password in path.
+	// Routes under fixed prefixes (/live, /movie, /series, /timeshift) can use :user/:password params safely.
 	r.GET("/live/:user/:password/:id", c.authenticatePath, c.xtreamStreamLive)
 	r.GET("/timeshift/:user/:password/:duration/:start/:id", c.authenticatePath, c.xtreamStreamTimeshift)
 	r.GET("/movie/:user/:password/:id", c.authenticatePath, c.xtreamStreamMovie)
@@ -66,8 +68,16 @@ func (c *Config) xtreamRoutes(r *gin.RouterGroup) {
 	r.GET("/hlsr/:token/:user/:password/:channel/:hash/:chunk", c.authenticatePath, c.xtreamHlsrStream)
 	// Single catch-all: Gin cannot have both /hls/:chunk and /hls/:token/:chunk (conflicting wildcards)
 	r.GET("/hls/*path", c.xtreamHlsDispatch)
-	r.GET("/play/:token/:type", c.xtreamStreamPlay)
-	r.GET("/play/:user/:password/:id", c.authenticatePath, c.xtreamStreamHandler)
+
+	// /play has two patterns: /play/:token/:type and /play/:user/:password/:id
+	// These conflict in Gin's router, so we use a catch-all dispatcher.
+	r.GET("/play/*path", c.xtreamPlayDispatch)
+
+	// Root-level /:user/:password/:id conflicts with other root routes (e.g. /get.php).
+	// Gin doesn't allow wildcards at the same level as literal segments in all cases,
+	// but this particular pattern works because /get.php, /apiget, etc. are registered first
+	// and Gin tries literal matches before wildcards.
+	r.GET("/:user/:password/:id", c.authenticatePath, c.xtreamStreamHandler)
 }
 
 func (c *Config) m3uRoutes(r *gin.RouterGroup) {

@@ -362,6 +362,48 @@ func (c *Config) xtreamStreamPlay(ctx *gin.Context) {
 	c.xtreamStreamWithChannelInfo(ctx, rpURL, token, stats.ChannelTypeLive)
 }
 
+// xtreamPlayDispatch handles /play/*path, dispatching between:
+//   - /play/:token/:type (2 segments, no auth)
+//   - /play/:user/:password/:id (3 segments, auth required)
+//
+// These two patterns conflict in Gin's router, so we use a single catch-all.
+func (c *Config) xtreamPlayDispatch(ctx *gin.Context) {
+	p := strings.TrimPrefix(ctx.Param("path"), "/")
+	parts := strings.SplitN(p, "/", 3)
+	switch len(parts) {
+	case 3:
+		// /play/:user/:password/:id — authenticate and stream
+		user, pass, id := parts[0], parts[1], parts[2]
+		c.mu.RLock()
+		matched := c.ProxyConfig.ValidateCredentials(user, pass)
+		c.mu.RUnlock()
+		if matched == "" {
+			log.Printf("[iptv-proxy] AUTH: Failed login attempt for user %q from %s", user, ctx.ClientIP())
+			ctx.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		ctx.Set("authenticated_user", matched)
+		rpURL, err := url.Parse(fmt.Sprintf("%s/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
+		if err != nil {
+			ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+			return
+		}
+		streamID := strings.Split(id, ".")[0]
+		c.xtreamStreamWithChannelInfo(ctx, rpURL, streamID, stats.ChannelTypeLive)
+	case 2:
+		// /play/:token/:type — no auth
+		token, t := parts[0], parts[1]
+		rpURL, err := url.Parse(fmt.Sprintf("%s/play/%s/%s", c.XtreamBaseURL, token, t))
+		if err != nil {
+			ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+			return
+		}
+		c.xtreamStreamWithChannelInfo(ctx, rpURL, token, stats.ChannelTypeLive)
+	default:
+		ctx.AbortWithStatus(http.StatusBadRequest)
+	}
+}
+
 func (c *Config) xtreamStreamTimeshift(ctx *gin.Context) {
 	duration := ctx.Param("duration")
 	start := ctx.Param("start")
