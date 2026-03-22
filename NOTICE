@@ -1,0 +1,23 @@
+iptv-proxy2
+===========
+
+This project is a fork of Iptv-Proxy by Pierre-Emmanuel Jacquier.
+
+Original project:
+  Name:    Iptv-Proxy
+  Author:  Pierre-Emmanuel Jacquier
+  Source:  https://github.com/pierre-emmanuel-jacquier/iptv-proxy
+  License: GNU General Public License v3.0
+
+Fork:
+  Name:    iptv-proxy2
+  Author:  Alvaro Lobato
+  Source:  https://github.com/alvarolobato/iptv-proxy
+  License: GNU General Public License v3.0
+
+The original Iptv-Proxy code is copyright (C) 2020 Pierre-Emmanuel Jacquier and
+is used under the terms of the GNU General Public License v3.0. All new files
+and modifications added in this fork are copyright (C) 2026 Alvaro Lobato and
+are also released under the GNU General Public License v3.0.
+
+A copy of the GNU General Public License v3.0 is included in the LICENSE file.

@@ -19,6 +19,10 @@ iptv/iptv.m3u
 # Local env (credentials / m3u URL). Use .env.example as template; CI can use secrets.
 .env
 
+# Runtime settings file — may contain m3u_url, passwords, and other credentials written by the UI.
+# The app creates this automatically on first run (EnsureStubSettings). Never commit real instances.
+data/settings.json
+
 # E2E evidence output (screenshot + API dump)
 web/frontend/e2e/evidence/
 
