@@ -161,6 +161,10 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
+		// Ensure the CLI --user/--password is in the Users slice so all user
+		// management goes through a single code path.
+		conf.MigrateDefaultUser()
+
 		startupCtx := buildStartupContext(conf, settings, overriddenBySettings, viper.ConfigFileUsed(), viper.GetBool("hide-passwords"))
 
 		srv, err := server.NewServer(conf, settings, &defaultForSettings)

@@ -28,18 +28,29 @@ type UserInfo struct {
 	IsDefault bool   `json:"is_default"`
 }
 
+// MigrateDefaultUser ensures the CLI --user/--password is present in the Users slice.
+// Call once at startup after ApplyTo. If User is non-empty and not already in Users,
+// it is prepended. After this, all user operations go through the Users slice only.
+func (p *ProxyConfig) MigrateDefaultUser() {
+	if p.User.String() == "" {
+		return
+	}
+	for _, u := range p.Users {
+		if u.Username == p.User.String() {
+			return // already in the slice
+		}
+	}
+	p.Users = append([]User{{
+		Username: p.User.String(),
+		Password: p.Password.String(),
+		Enabled:  true,
+	}}, p.Users...)
+}
+
 // FindUser returns the User matching username, or nil.
-// Checks both the default user (User/Password fields) and the Users slice.
 func (p *ProxyConfig) FindUser(username string) *User {
 	if username == "" {
 		return nil
-	}
-	if username == p.User.String() {
-		return &User{
-			Username: p.User.String(),
-			Password: p.Password.String(),
-			Enabled:  true,
-		}
 	}
 	for i := range p.Users {
 		if p.Users[i].Username == username {
@@ -49,7 +60,7 @@ func (p *ProxyConfig) FindUser(username string) *User {
 	return nil
 }
 
-// ValidateCredentials checks username/password against all users (default + Users slice).
+// ValidateCredentials checks username/password against all users in the Users slice.
 // Returns the matched username or "" if invalid. Uses constant-time comparison
 // for both username and password to avoid timing-based user enumeration.
 // Returns "" for disabled users.
@@ -57,13 +68,6 @@ func (p *ProxyConfig) ValidateCredentials(username, password string) string {
 	if username == "" {
 		return ""
 	}
-	// Check default user — evaluate both comparisons to avoid short-circuit timing leak.
-	userMatch := constantTimeEqual(username, p.User.String())
-	passMatch := constantTimeEqual(password, p.Password.String())
-	if userMatch && passMatch {
-		return username
-	}
-	// Check additional users.
 	for _, u := range p.Users {
 		uMatch := constantTimeEqual(username, u.Username)
 		pMatch := constantTimeEqual(password, u.Password)
@@ -77,20 +81,14 @@ func (p *ProxyConfig) ValidateCredentials(username, password string) string {
 	return ""
 }
 
-// AllUsers returns a list of all users (default + Users slice) with is_default flag.
+// AllUsers returns a list of all users (password omitted).
 func (p *ProxyConfig) AllUsers() []UserInfo {
-	out := make([]UserInfo, 0, 1+len(p.Users))
-	out = append(out, UserInfo{
-		Username:  p.User.String(),
-		Enabled:   true,
-		IsDefault: true,
-	})
+	out := make([]UserInfo, 0, len(p.Users))
 	for _, u := range p.Users {
 		out = append(out, UserInfo{
 			Username:  u.Username,
 			Enabled:   u.Enabled,
 			CreatedAt: u.CreatedAt,
-			IsDefault: false,
 		})
 	}
 	return out

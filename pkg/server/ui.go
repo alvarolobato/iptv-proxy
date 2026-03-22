@@ -543,11 +543,7 @@ func (c *Config) apiCreateUser(ctx *gin.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Check uniqueness (against default user and existing users).
-	if req.Username == c.ProxyConfig.User.String() {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "username already exists"})
-		return
-	}
+	// Check uniqueness.
 	for _, u := range c.ProxyConfig.Users {
 		if u.Username == req.Username {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "username already exists"})
@@ -598,21 +594,6 @@ func (c *Config) apiUpdateUser(ctx *gin.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Check if it's the default user (from --user/--password CLI flags).
-	if username == c.ProxyConfig.User.String() {
-		if req.Password != nil && *req.Password != "" {
-			c.ProxyConfig.Password = config.CredentialString(*req.Password)
-		}
-		if err := c.persistUsers(); err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		log.Printf("[iptv-proxy] AUDIT: User updated: %s", username)
-		ctx.JSON(http.StatusOK, config.UserInfo{Username: username, Enabled: true, IsDefault: true})
-		return
-	}
-
-	// Find in Users slice.
 	for i := range c.ProxyConfig.Users {
 		if c.ProxyConfig.Users[i].Username == username {
 			if req.Password != nil && *req.Password != "" {
@@ -643,19 +624,6 @@ func (c *Config) apiDeleteUser(ctx *gin.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// If deleting the default user (from CLI flags), clear it.
-	if username == c.ProxyConfig.User.String() {
-		c.ProxyConfig.User = ""
-		c.ProxyConfig.Password = ""
-		if err := c.persistUsers(); err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		log.Printf("[iptv-proxy] AUDIT: User deleted: %s", username)
-		ctx.Status(http.StatusNoContent)
-		return
-	}
-
 	for i := range c.ProxyConfig.Users {
 		if c.ProxyConfig.Users[i].Username == username {
 			c.ProxyConfig.Users = append(c.ProxyConfig.Users[:i], c.ProxyConfig.Users[i+1:]...)
@@ -681,10 +649,6 @@ func (c *Config) apiUserWatch(ctx *gin.Context) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if username == c.ProxyConfig.User.String() {
-		ctx.JSON(http.StatusOK, gin.H{"username": username, "password": c.ProxyConfig.Password.String()})
-		return
-	}
 	for _, u := range c.ProxyConfig.Users {
 		if u.Username == username {
 			ctx.JSON(http.StatusOK, gin.H{"username": u.Username, "password": u.Password})
@@ -701,9 +665,6 @@ func (c *Config) persistUsers() error {
 	if err != nil {
 		return err
 	}
-	// Update the default user's password in settings.
-	s.User = c.ProxyConfig.User.String()
-	s.Password = c.ProxyConfig.Password.String()
 	s.Users = c.ProxyConfig.Users
 	return c.writeSettingsFile(&s)
 }

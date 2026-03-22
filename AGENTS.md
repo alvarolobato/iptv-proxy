@@ -165,7 +165,7 @@ The Playwright config starts the server via `webServer` (see `web/frontend/scrip
 - **`writeSettingsFile` and users.** The settings API (`PUT /api/settings`) and user API (`/api/users`) both write to `settings.json`. The settings form doesn’t include users, so `writeSettingsFile` must preserve users from in-memory state to avoid wiping them. Users are managed via their own API endpoints.
 - **E2E golden settings.** The E2E startup script (`start-e2e-server.mjs`) overwrites `settings.json` with `goldenSettings` on every run. Any test data (including `users`) must be in `goldenSettings`, not just in the testdata JSON file.
 - **Constant-time comparison.** For `ValidateCredentials`, evaluate both username and password comparisons into variables before the conditional branch. `&&` short-circuits, which can leak whether the username matched via timing differences.
-- **Default user constraints.** The default user (from CLI `--user`/`--password`) cannot be deleted or disabled. Attempts to disable via the API should return 400, not silently succeed returning `enabled: true`.
+- **CLI user migration.** The CLI `--user`/`--password` is migrated into the `Users` slice at startup via `MigrateDefaultUser()`. All user operations (CRUD, auth, watch) go through the `Users` slice only — no dual-path logic for "default" vs "additional" users. This keeps the code simple and ensures all users are treated equally in the UI.
 
 ### Elasticsearch
 

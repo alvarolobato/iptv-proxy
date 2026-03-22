@@ -66,8 +66,8 @@ func (c *Config) getM3U(ctx *gin.Context) {
 	userName := authUser.(string)
 	defaultUser := url.PathEscape(c.pathAuthUser())
 	defaultPass := url.PathEscape(c.pathAuthPassword())
-	// If requesting user is the default user, no rewriting needed.
-	if userName == c.ProxyConfig.User.String() {
+	// If requesting user is the one whose credentials are baked into the M3U, no rewriting needed.
+	if userName == c.pathAuthUser() {
 		ctx.File(c.proxyfiedM3UPath)
 		return
 	}

@@ -13,16 +13,16 @@ import (
 
 func setupUserTestConfig() *Config {
 	gin.SetMode(gin.TestMode)
-	return &Config{
-		ProxyConfig: &config.ProxyConfig{
-			User:     "admin",
-			Password: "adminpass",
-			Users: []config.User{
-				{Username: "alice", Password: "alice123", Enabled: true, CreatedAt: "2026-03-21T10:00:00Z"},
-				{Username: "bob", Password: "bob456", Enabled: false, CreatedAt: "2026-03-21T11:00:00Z"},
-			},
+	conf := &config.ProxyConfig{
+		User:     "admin",
+		Password: "adminpass",
+		Users: []config.User{
+			{Username: "alice", Password: "alice123", Enabled: true, CreatedAt: "2026-03-21T10:00:00Z"},
+			{Username: "bob", Password: "bob456", Enabled: false, CreatedAt: "2026-03-21T11:00:00Z"},
 		},
 	}
+	conf.MigrateDefaultUser() // admin is now in Users slice
+	return &Config{ProxyConfig: conf}
 }
 
 func setupUserRouter(c *Config) *gin.Engine {
@@ -53,8 +53,8 @@ func TestAPIListUsers(t *testing.T) {
 	if len(resp.Users) != 3 {
 		t.Fatalf("expected 3 users, got %d", len(resp.Users))
 	}
-	if !resp.Users[0].IsDefault {
-		t.Error("first user should be default")
+	if resp.Users[0].Username != "admin" {
+		t.Errorf("first user should be admin, got %q", resp.Users[0].Username)
 	}
 }
 
@@ -73,8 +73,8 @@ func TestAPICreateUser_Success(t *testing.T) {
 	if w.Code != 201 {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	if len(c.ProxyConfig.Users) != 3 {
-		t.Errorf("expected 3 users in config, got %d", len(c.ProxyConfig.Users))
+	if len(c.ProxyConfig.Users) != 4 {
+		t.Errorf("expected 4 users in config (admin+alice+bob+charlie), got %d", len(c.ProxyConfig.Users))
 	}
 }
 
@@ -173,8 +173,9 @@ func TestAPIUpdateUser_Password(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if c.ProxyConfig.Users[0].Password != newPass {
-		t.Errorf("password not updated, got %q", c.ProxyConfig.Users[0].Password)
+	alice := c.ProxyConfig.FindUser("alice")
+	if alice == nil || alice.Password != newPass {
+		t.Errorf("password not updated, got %v", alice)
 	}
 }
 
@@ -194,7 +195,8 @@ func TestAPIUpdateUser_Disable(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if c.ProxyConfig.Users[0].Enabled {
+	alice := c.ProxyConfig.FindUser("alice")
+	if alice == nil || alice.Enabled {
 		t.Error("user should be disabled")
 	}
 }
@@ -227,8 +229,8 @@ func TestAPIDeleteUser_Success(t *testing.T) {
 	if w.Code != 204 {
 		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
 	}
-	if len(c.ProxyConfig.Users) != 1 {
-		t.Errorf("expected 1 user after deleting alice, got %d", len(c.ProxyConfig.Users))
+	if len(c.ProxyConfig.Users) != 2 {
+		t.Errorf("expected 2 users after deleting alice (admin+bob remain), got %d", len(c.ProxyConfig.Users))
 	}
 }
 
@@ -245,8 +247,11 @@ func TestAPIDeleteUser_DefaultUser(t *testing.T) {
 	if w.Code != 204 {
 		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
 	}
-	if c.ProxyConfig.User.String() != "" {
-		t.Errorf("expected default user to be cleared, got %q", c.ProxyConfig.User.String())
+	// admin should be removed from Users slice
+	for _, u := range c.ProxyConfig.Users {
+		if u.Username == "admin" {
+			t.Error("admin should have been deleted from Users slice")
+		}
 	}
 }
 

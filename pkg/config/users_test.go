@@ -15,6 +15,7 @@ func makeProxyConfig() *ProxyConfig {
 
 func TestFindUser_DefaultUser(t *testing.T) {
 	p := makeProxyConfig()
+	p.MigrateDefaultUser()
 	u := p.FindUser("admin")
 	if u == nil {
 		t.Fatal("expected non-nil user")
@@ -52,8 +53,17 @@ func TestFindUser_Empty(t *testing.T) {
 
 func TestValidateCredentials_DefaultUser(t *testing.T) {
 	p := makeProxyConfig()
+	p.MigrateDefaultUser()
 	if got := p.ValidateCredentials("admin", "adminpass"); got != "admin" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestValidateCredentials_DefaultUser_BeforeMigration(t *testing.T) {
+	// Without migration, CLI user is NOT in Users slice and won't authenticate
+	p := makeProxyConfig()
+	if got := p.ValidateCredentials("admin", "adminpass"); got != "" {
+		t.Errorf("expected empty before migration, got %q", got)
 	}
 }
 
@@ -85,28 +95,74 @@ func TestValidateCredentials_EmptyUsername(t *testing.T) {
 	}
 }
 
-func TestAllUsers_DefaultOnly(t *testing.T) {
+func TestAllUsers_Empty(t *testing.T) {
 	p := &ProxyConfig{User: "admin", Password: "pass"}
 	users := p.AllUsers()
-	if len(users) != 1 {
-		t.Fatalf("expected 1 user, got %d", len(users))
-	}
-	if !users[0].IsDefault || users[0].Username != "admin" {
-		t.Errorf("unexpected default user: %+v", users[0])
+	if len(users) != 0 {
+		t.Fatalf("expected 0 users (CLI user not auto-added to AllUsers), got %d", len(users))
 	}
 }
 
-func TestAllUsers_Multiple(t *testing.T) {
+func TestAllUsers_WithMigration(t *testing.T) {
 	p := makeProxyConfig()
+	p.MigrateDefaultUser()
 	users := p.AllUsers()
 	if len(users) != 3 {
 		t.Fatalf("expected 3 users, got %d", len(users))
 	}
-	if !users[0].IsDefault {
-		t.Error("first user should be default")
+	if users[0].Username != "admin" {
+		t.Errorf("first user should be admin, got %q", users[0].Username)
 	}
-	if users[1].IsDefault || users[1].Username != "alice" {
-		t.Errorf("unexpected second user: %+v", users[1])
+}
+
+func TestAllUsers_FromSlice(t *testing.T) {
+	p := makeProxyConfig()
+	users := p.AllUsers()
+	if len(users) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(users))
+	}
+	if users[0].Username != "alice" {
+		t.Errorf("first user should be alice, got %q", users[0].Username)
+	}
+}
+
+func TestMigrateDefaultUser(t *testing.T) {
+	p := &ProxyConfig{User: "admin", Password: "pass"}
+	p.MigrateDefaultUser()
+	if len(p.Users) != 1 {
+		t.Fatalf("expected 1 user after migration, got %d", len(p.Users))
+	}
+	if p.Users[0].Username != "admin" || p.Users[0].Password != "pass" {
+		t.Errorf("migrated user mismatch: %+v", p.Users[0])
+	}
+	// Calling again should not duplicate
+	p.MigrateDefaultUser()
+	if len(p.Users) != 1 {
+		t.Fatalf("expected 1 user after second migration, got %d", len(p.Users))
+	}
+}
+
+func TestMigrateDefaultUser_EmptyUser(t *testing.T) {
+	p := &ProxyConfig{}
+	p.MigrateDefaultUser()
+	if len(p.Users) != 0 {
+		t.Fatalf("expected 0 users when CLI user is empty, got %d", len(p.Users))
+	}
+}
+
+func TestMigrateDefaultUser_AlreadyInSlice(t *testing.T) {
+	p := makeProxyConfig()
+	p.Users = append([]User{{Username: "admin", Password: "adminpass", Enabled: true}}, p.Users...)
+	p.MigrateDefaultUser()
+	// Should not duplicate admin
+	count := 0
+	for _, u := range p.Users {
+		if u.Username == "admin" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 admin, got %d", count)
 	}
 }
 
