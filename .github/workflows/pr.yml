@@ -35,7 +35,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +44,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GH_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -61,6 +60,7 @@ jobs:
       - name: Make package public
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GH_TOKEN }}
           script: |
             try {
               await github.rest.packages.updatePackageForUser({

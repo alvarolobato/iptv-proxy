@@ -9,12 +9,11 @@ on:
 jobs:
   delete-pr-image:
     runs-on: ubuntu-latest
-    permissions:
-      packages: write
     steps:
       - name: Delete PR image from ghcr.io
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GH_TOKEN }}
           script: |
             const tag = `pr-${{ github.event.pull_request.number }}`;
             const packageName = context.repo.repo;
