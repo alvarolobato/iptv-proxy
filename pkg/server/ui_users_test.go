@@ -234,14 +234,19 @@ func TestAPIDeleteUser_Success(t *testing.T) {
 
 func TestAPIDeleteUser_DefaultUser(t *testing.T) {
 	c := setupUserTestConfig()
+	c.ProxyConfig.DataFolder = t.TempDir()
+	config.EnsureStubSettings(c.ProxyConfig.DataFolder)
 	r := setupUserRouter(c)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("DELETE", "/api/users/admin", nil)
 	r.ServeHTTP(w, req)
 
-	if w.Code != 400 {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != 204 {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+	if c.ProxyConfig.User.String() != "" {
+		t.Errorf("expected default user to be cleared, got %q", c.ProxyConfig.User.String())
 	}
 }
 

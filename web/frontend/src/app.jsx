@@ -518,12 +518,12 @@ function WatchTab({ addToast }) {
 
   return (
     <Fragment>
-      {users.length > 1 && (
+      {users.length > 0 && (
         <EuiFormRow label="Show connection details for user:" style={{ maxWidth: 300, marginBottom: 16 }}>
           <EuiSelect
             options={users.map((u) => ({
               value: u.username,
-              text: u.username + (u.is_default ? ' (default)' : '') + (!u.enabled ? ' (disabled)' : ''),
+              text: u.username + (!u.enabled ? ' (disabled)' : ''),
             }))}
             value={selectedUser}
             onChange={(e) => setSelectedUser(e.target.value)}
@@ -1841,23 +1841,19 @@ function UsersTab({ addToast }) {
   };
 
   const columns = [
-    { field: 'username', name: 'Username', render: (val, item) => (
-      <span>{val}{item.is_default ? <EuiBadge color="hollow" style={{ marginLeft: 8 }}>default</EuiBadge> : null}</span>
-    )},
+    { field: 'username', name: 'Username' },
     { field: 'enabled', name: 'Status', render: (val) => (
       <EuiBadge color={val ? 'success' : 'warning'}>{val ? 'Enabled' : 'Disabled'}</EuiBadge>
     )},
-    { field: 'created_at', name: 'Created', render: (val, item) => item.is_default ? '—' : (val ? val.split('T')[0] : '—') },
+    { field: 'created_at', name: 'Created', render: (val) => val ? val.split('T')[0] : '—' },
     { name: 'Actions', render: (item) => (
       <EuiFlexGroup gutterSize="s" responsive={false}>
         <EuiFlexItem grow={false}>
           <EuiButtonEmpty size="xs" onClick={() => { setEditUser(item); setModalMode('edit'); }}>Edit</EuiButtonEmpty>
         </EuiFlexItem>
-        {!item.is_default && (
-          <EuiFlexItem grow={false}>
-            <EuiButtonEmpty size="xs" color="danger" onClick={() => setDeleteConfirm(item.username)}>Delete</EuiButtonEmpty>
-          </EuiFlexItem>
-        )}
+        <EuiFlexItem grow={false}>
+          <EuiButtonEmpty size="xs" color="danger" onClick={() => setDeleteConfirm(item.username)}>Delete</EuiButtonEmpty>
+        </EuiFlexItem>
       </EuiFlexGroup>
     )},
   ];
@@ -1909,7 +1905,6 @@ function UserFormModal({ mode, user, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
 
   const isEdit = mode === 'edit';
-  const isDefault = user?.is_default;
 
   const handleSave = () => {
     setError(null);
@@ -1956,12 +1951,8 @@ function UserFormModal({ mode, user, onClose, onSaved }) {
             type="dual"
           />
         </EuiFormRow>
-        {!isDefault && (
-          <>
-            <EuiSpacer size="m" />
-            <EuiSwitch label="Enabled" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-          </>
-        )}
+        <EuiSpacer size="m" />
+        <EuiSwitch label="Enabled" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
       </EuiModalBody>
       <EuiModalFooter>
         <EuiButtonEmpty onClick={onClose}>Cancel</EuiButtonEmpty>

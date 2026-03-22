@@ -598,12 +598,8 @@ func (c *Config) apiUpdateUser(ctx *gin.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Check if it's the default user.
+	// Check if it's the default user (from --user/--password CLI flags).
 	if username == c.ProxyConfig.User.String() {
-		if req.Enabled != nil && !*req.Enabled {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "cannot disable the default user"})
-			return
-		}
 		if req.Password != nil && *req.Password != "" {
 			c.ProxyConfig.Password = config.CredentialString(*req.Password)
 		}
@@ -647,8 +643,16 @@ func (c *Config) apiDeleteUser(ctx *gin.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// If deleting the default user (from CLI flags), clear it.
 	if username == c.ProxyConfig.User.String() {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete the default user"})
+		c.ProxyConfig.User = ""
+		c.ProxyConfig.Password = ""
+		if err := c.persistUsers(); err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		log.Printf("[iptv-proxy] AUDIT: User deleted: %s", username)
+		ctx.Status(http.StatusNoContent)
 		return
 	}
 
