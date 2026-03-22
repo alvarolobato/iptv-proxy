@@ -22,19 +22,21 @@ This file gives AI agents and future sessions application context and where to f
 cmd/root.go           # CLI entry, flags, config construction, server.NewServer + Serve
 main.go               # calls cmd.Execute()
 pkg/
-  config/config.go    # ProxyConfig, CredentialString, HostConfiguration
+  config/config.go    # ProxyConfig, CredentialString, HostConfiguration, User struct
+  config/users.go     # User helpers: FindUser, ValidateCredentials, AllUsers, ValidUsername
   config/settings.go  # SettingsJSON, ReplacementsInSettings, ReplacementRule (settings.json shape)
   config/settings_load.go  # LoadSettings, ApplyTo, EnsureStubSettings (depends on settings.go)
   server/
     server.go         # NewServer, Serve, playlist init, marshallInto (M3U writing), replaceURL
     startup.go        # ServeWithContext, startup summary
     ui_static.go      # embedded frontend (uistatic/*), serveStaticUI
-    ui.go             # UI API (/api/ready, /api/groups, /api/channels, settings), channelsProcessed
+    ui.go             # UI API (/api/ready, /api/groups, /api/channels, settings, users), channelsProcessed
     handlers.go       # getM3U, reverseProxy, m3u8ReverseProxy, stream (HTTP proxy), xtreamStream, auth
     routes.go         # routes, xtreamRoutes, m3uRoutes
     xtreamHandles.go  # Xtream: get.php, apiget, player_api, xmltv.php, stream handlers, HLS
     cache.go          # responseCache for XMLTV
     replacements.go   # loadReplacements, applyReplacements, Replacements struct
+  stats/              # Elasticsearch stats collector (sessions, channel metrics, user history)
   xtream-proxy/       # Xtream API client (GetLiveCategories, GetXMLTV, etc.)
 vendor/               # Vendored deps
 web/frontend/         # Configuration UI (React, Vite, EUI); build output → pkg/server/uistatic/
@@ -52,8 +54,8 @@ docs/
 1. **Startup:** `cmd/root.go` parses flags and config, builds `config.ProxyConfig`, calls `server.NewServer(conf)`, then `server.Serve()`.
 2. **M3U mode:** If `RemoteURL` (m3u-url) is set, server parses the M3U, applies optional filter/replacement (inclusions/exclusions and replacements from settings, data-folder, divide-by-res), writes a proxified M3U, and registers M3U route + per-track proxy routes.
 3. **Xtream mode:** If `XtreamBaseURL` (+ credentials) is set, server registers Xtream routes: get.php, player_api.php, xmltv.php, live/movie/series stream URLs, HLS, play route. Stream requests are proxied with Range header; XMLTV can be cached and retried.
-4. **Auth:** M3U and Xtream endpoints use the same `user`/`password`; auth middleware in routes.
-5. **Data folder:** Use `--data-folder /data` (e.g. in Docker mount a volume at `/data`) for `replacements.json` and other data.
+4. **Auth:** Multi-user auth — the default user comes from `--user`/`--password` (CLI flags or `user`/`password` in settings.json). Additional users are stored in the `users` array in `settings.json` and managed via the UI or `/api/users` endpoints. Auth middleware (`authenticate`, `appAuthenticate`, `authenticatePath`) validates against all users and stores the matched username in the Gin context (`ctx.Set("authenticated_user", ...)`).
+5. **Data folder:** Use `--data-folder /data` (e.g. in Docker mount a volume at `/data`) for `settings.json`, `replacements.json`, and other data.
 
 ---
 
@@ -77,6 +79,8 @@ docs/
 | Xtream HTTP handlers and XMLTV | `pkg/server/xtreamHandles.go` |
 | Stream proxy (Range, etc.) | `pkg/server/handlers.go` (`stream`) |
 | Routes | `pkg/server/routes.go` |
+| User management API | `pkg/server/ui.go` (`apiListUsers`, `apiCreateUser`, etc.) |
+| User helpers (find, validate, list) | `pkg/config/users.go` |
 | Cache | `pkg/server/cache.go` |
 | User-facing configuration and options | `docs/configuration.md`, README.md |
 | Replacements file | `docs/replacements.md` |
@@ -150,6 +154,18 @@ The Playwright config starts the server via `webServer` (see `web/frontend/scrip
 - **Register every EUI icon** in `web/frontend/src/icons_hack.jsx` via `appendIconComponentCache`. Unregistered icons render as empty. Rebuild the frontend after adding icons.
 - **Use native `<a href>` for stream links**, not `EuiButtonEmpty` with `href` (which causes `about:blank#blocked`). Set `title` to the URL for hover visibility.
 - **Action order in tables:** Put "Open stream" to the right of filter actions so missing stream URLs don’t shift button alignment.
+
+### Multi-user and auth
+
+- **Xtream route conflicts.** Gin does not allow conflicting wildcards at the same path segment. When converting literal user/pass to `:user/:password` params, routes like `/play/:token/:type` and `/play/:user/:password/:id` will panic. Use a catch-all dispatcher (`/play/*path`) for conflicting patterns, similar to the existing `/hls/*path` dispatcher. Routes under unique fixed prefixes (`/live/`, `/movie/`, `/series/`, `/timeshift/`) can safely use `:user/:password` params. Always add a `TestXtreamRouteRegistration` test to catch these panics.
+- **Route params, not literals.** Stream routes use `:user/:password` path params (not hardcoded user/pass literals). Auth is validated by `authenticatePath` middleware. The M3U file is generated with the default user’s credentials and rewritten per-user in `getM3U`.
+- **Credential escaping.** When building proxy URLs in `replaceURL`, always use `url.PathEscape` for credentials. When rewriting credentials in `getM3U`, use the same `url.PathEscape` so the search string matches what was written. Mismatch between generation and rewrite will silently fail for passwords with special characters.
+- **`Config` struct contains `sync.RWMutex`.** Never copy `Config` by value (`tmp := *c`) — this copies the mutex and triggers the `govet` copylocks lint error. Instead, construct a new `&Config{...}` with the fields you need. This applies to `cacheXtreamM3u` and any similar pattern.
+- **Per-track `Config` in routes.** When creating `trackConfig` for per-track handlers, copy `statsCollector` from the parent config. Without it, `streamWithStats` will panic on nil interface dereference.
+- **`writeSettingsFile` and users.** The settings API (`PUT /api/settings`) and user API (`/api/users`) both write to `settings.json`. The settings form doesn’t include users, so `writeSettingsFile` must preserve users from in-memory state to avoid wiping them. Users are managed via their own API endpoints.
+- **E2E golden settings.** The E2E startup script (`start-e2e-server.mjs`) overwrites `settings.json` with `goldenSettings` on every run. Any test data (including `users`) must be in `goldenSettings`, not just in the testdata JSON file.
+- **Constant-time comparison.** For `ValidateCredentials`, evaluate both username and password comparisons into variables before the conditional branch. `&&` short-circuits, which can leak whether the username matched via timing differences.
+- **CLI user migration.** The CLI `--user`/`--password` is migrated into the `Users` slice at startup via `MigrateDefaultUser()`. All user operations (CRUD, auth, watch) go through the `Users` slice only — no dual-path logic for "default" vs "additional" users. This keeps the code simple and ensures all users are treated equally in the UI.
 
 ### Elasticsearch
 

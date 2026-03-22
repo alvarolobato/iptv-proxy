@@ -27,6 +27,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"sync/atomic"
@@ -56,7 +57,36 @@ func (c *Config) getM3U(ctx *gin.Context) {
 	ctx.Header("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, c.M3UFileName))
 	ctx.Header("Content-Type", "application/octet-stream")
 
-	ctx.File(c.proxyfiedM3UPath)
+	// If multi-user: rewrite default credentials in M3U to the requesting user's credentials.
+	authUser, exists := ctx.Get("authenticated_user")
+	if !exists {
+		ctx.File(c.proxyfiedM3UPath)
+		return
+	}
+	userName := authUser.(string)
+	defaultUser := url.PathEscape(c.pathAuthUser())
+	defaultPass := url.PathEscape(c.pathAuthPassword())
+	// If requesting user is the one whose credentials are baked into the M3U, no rewriting needed.
+	if userName == c.pathAuthUser() {
+		ctx.File(c.proxyfiedM3UPath)
+		return
+	}
+	c.mu.RLock()
+	user := c.ProxyConfig.FindUser(userName)
+	c.mu.RUnlock()
+	if user == nil {
+		ctx.File(c.proxyfiedM3UPath)
+		return
+	}
+	data, err := os.ReadFile(c.proxyfiedM3UPath)
+	if err != nil {
+		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+		return
+	}
+	content := strings.ReplaceAll(string(data),
+		"/"+defaultUser+"/"+defaultPass+"/",
+		"/"+url.PathEscape(userName)+"/"+url.PathEscape(user.Password)+"/")
+	ctx.Data(http.StatusOK, "application/octet-stream", []byte(content))
 }
 
 func (c *Config) reverseProxy(ctx *gin.Context) {
@@ -128,7 +158,11 @@ func (c *Config) streamWithStats(ctx *gin.Context, oriURL *url.URL, chanInfo sta
 	startEvt := chanInfo
 	startEvt.ClientIP = ctx.ClientIP()
 	startEvt.UserAgent = ctx.Request.UserAgent()
-	startEvt.UserName = c.ProxyConfig.User.String()
+	if u, ok := ctx.Get("authenticated_user"); ok {
+		startEvt.UserName = u.(string)
+	} else {
+		startEvt.UserName = c.ProxyConfig.User.String()
+	}
 	sessionID := c.statsCollector.RecordSessionStart(context.Background(), startEvt)
 
 	cr := &countingReader{r: resp.Body}
@@ -216,9 +250,15 @@ func (c *Config) authenticate(ctx *gin.Context) {
 		ctx.AbortWithError(http.StatusBadRequest, err) // nolint: errcheck
 		return
 	}
-	if c.ProxyConfig.User.String() != authReq.Username || c.ProxyConfig.Password.String() != authReq.Password {
+	c.mu.RLock()
+	matchedUser := c.ProxyConfig.ValidateCredentials(authReq.Username, authReq.Password)
+	c.mu.RUnlock()
+	if matchedUser == "" {
+		log.Printf("[iptv-proxy] AUTH: Failed login attempt for user %q from %s", authReq.Username, ctx.ClientIP())
 		ctx.AbortWithStatus(http.StatusUnauthorized)
+		return
 	}
+	ctx.Set("authenticated_user", matchedUser)
 }
 
 func (c *Config) appAuthenticate(ctx *gin.Context) {
@@ -238,9 +278,30 @@ func (c *Config) appAuthenticate(ctx *gin.Context) {
 		return
 	}
 	log.Printf("[iptv-proxy] %v | %s |App Auth\n", time.Now().Format("2006/01/02 - 15:04:05"), ctx.ClientIP())
-	if c.ProxyConfig.User.String() != q["username"][0] || c.ProxyConfig.Password.String() != q["password"][0] {
+	c.mu.RLock()
+	matchedUser := c.ProxyConfig.ValidateCredentials(q["username"][0], q["password"][0])
+	c.mu.RUnlock()
+	if matchedUser == "" {
+		log.Printf("[iptv-proxy] AUTH: Failed login attempt for user %q from %s", q["username"][0], ctx.ClientIP())
 		ctx.AbortWithStatus(http.StatusUnauthorized)
+		return
 	}
+	ctx.Set("authenticated_user", matchedUser)
 
 	ctx.Request.Body = ioutil.NopCloser(bytes.NewReader(contents))
+}
+
+// authenticatePath validates user/password from URL path params.
+func (c *Config) authenticatePath(ctx *gin.Context) {
+	user := ctx.Param("user")
+	pass := ctx.Param("password")
+	c.mu.RLock()
+	matched := c.ProxyConfig.ValidateCredentials(user, pass)
+	c.mu.RUnlock()
+	if matched == "" {
+		log.Printf("[iptv-proxy] AUTH: Failed login attempt for user %q from %s", user, ctx.ClientIP())
+		ctx.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
+	ctx.Set("authenticated_user", matched)
 }

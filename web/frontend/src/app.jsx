@@ -5,6 +5,8 @@ import {
   EuiButtonEmpty,
   EuiButtonIcon,
   EuiCallOut,
+  EuiConfirmModal,
+  EuiFieldPassword,
   EuiFieldSearch,
   EuiFieldText,
   EuiFilterButton,
@@ -13,10 +15,16 @@ import {
   EuiFlexItem,
   EuiFormRow,
   EuiIcon,
+  EuiModal,
+  EuiModalBody,
+  EuiModalFooter,
+  EuiModalHeader,
+  EuiModalHeaderTitle,
   EuiPageTemplate,
   EuiPanel,
   EuiSelect,
   EuiSpacer,
+  EuiSwitch,
   EuiTab,
   EuiTabs,
   EuiTitle,
@@ -219,6 +227,7 @@ function MainPage() {
     { id: 'channels', name: 'Channels' },
     { id: 'processing', name: 'Processing' },
     { id: 'watch', name: 'Watch' },
+    { id: 'users', name: 'Users' },
   ];
 
   const onGroupViewChannels = (groupName) => {
@@ -335,6 +344,7 @@ function MainPage() {
         />
       )}
       {selectedTabId === 'watch' && <WatchTab addToast={addToast} />}
+      {selectedTabId === 'users' && <UsersTab addToast={addToast} />}
       <ToastList toasts={toasts} />
     </EuiPanel>
   );
@@ -414,16 +424,42 @@ function WatchTab({ addToast }) {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [selectedUser, setSelectedUser] = useState('');
+  const [watchCreds, setWatchCreds] = useState(null); // { username, password }
 
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetch('/api/settings', { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
-      .then((data) => setSettings(data.effective ?? data))
+    Promise.all([
+      fetch('/api/settings', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText)))),
+      fetch('/api/users').then((r) => (r.ok ? r.json() : { users: [] })),
+    ])
+      .then(([settingsData, usersData]) => {
+        const s = settingsData.effective ?? settingsData;
+        setSettings(s);
+        const userList = usersData.users || [];
+        setUsers(userList);
+        if (userList.length > 0) {
+          setSelectedUser(userList[0].username);
+        }
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  // Fetch password for selected user.
+  useEffect(() => {
+    setWatchCreds(null);
+    if (!selectedUser) return;
+    fetch(`/api/users/${encodeURIComponent(selectedUser)}/watch`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setWatchCreds(data || null))
+      .catch(() => setWatchCreds(null));
+  }, [selectedUser]);
+
+  const activeUser = watchCreds?.username || settings?.user || '';
+  const activePassword = watchCreds?.password || settings?.password || '';
 
   const watch = useMemo(() => {
     if (!settings) return null;
@@ -432,8 +468,8 @@ function WatchTab({ addToast }) {
     const scheme = settings.https ? 'https' : 'http';
     const customEnd = (settings.custom_endpoint || '').trim().replace(/^\/+|\/+$/g, '');
     const baseUrl = customEnd ? `${scheme}://${host}:${port}/${customEnd}` : `${scheme}://${host}:${port}`;
-    const user = settings.user || '';
-    const password = settings.password || '';
+    const user = activeUser;
+    const password = activePassword;
     const m3uFileName = settings.m3u_file_name || 'iptv.m3u';
     const isM3U = !!settings.m3u_url;
     const isXtream = !!settings.xtream_base_url;
@@ -459,7 +495,7 @@ function WatchTab({ addToast }) {
       user,
       password,
     };
-  }, [settings]);
+  }, [settings, activeUser, activePassword]);
 
   if (loading) {
     return <EuiCallOut title="Loading…" iconType="refresh" />;
@@ -482,6 +518,18 @@ function WatchTab({ addToast }) {
 
   return (
     <Fragment>
+      {users.length > 0 && (
+        <EuiFormRow label="Show connection details for user:" style={{ maxWidth: 300, marginBottom: 16 }}>
+          <EuiSelect
+            options={users.map((u) => ({
+              value: u.username,
+              text: u.username + (!u.enabled ? ' (disabled)' : ''),
+            }))}
+            value={selectedUser}
+            onChange={(e) => setSelectedUser(e.target.value)}
+          />
+        </EuiFormRow>
+      )}
       <p className="euiTextColor--subdued" style={{ marginBottom: 16 }}>
         Use these URLs and credentials in your IPTV player (e.g. VLC, Kodi, TiviMate). Copy each value with the clipboard button, or copy a full section to share in a messaging app.
       </p>
@@ -1756,5 +1804,185 @@ function ProcessingTab({ prepopulate, onClearPrepopulate, addToast, onSettingsSa
         Save all processing settings
       </EuiButton>
     </Fragment>
+  );
+}
+
+// --- Users Tab ---
+
+function UsersTab({ addToast }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [modalMode, setModalMode] = useState(null); // 'add' | 'edit' | null
+  const [editUser, setEditUser] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  const fetchUsers = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetch('/api/users')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
+      .then((data) => setUsers(data.users || []))
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
+  const handleDelete = (username) => {
+    fetch(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' })
+      .then((r) => {
+        if (!r.ok) return r.json().then((d) => Promise.reject(new Error(d.error || r.statusText)));
+        addToast(`User "${username}" deleted`);
+        fetchUsers();
+      })
+      .catch((e) => addToast(`Error: ${e.message}`, 'danger'))
+      .finally(() => setDeleteConfirm(null));
+  };
+
+  const columns = [
+    { field: 'username', name: 'Username' },
+    { field: 'description', name: 'Description', render: (val) => val || '—' },
+    { field: 'enabled', name: 'Status', render: (val) => (
+      <EuiBadge color={val ? 'success' : 'warning'}>{val ? 'Enabled' : 'Disabled'}</EuiBadge>
+    )},
+    { field: 'created_at', name: 'Created', render: (val) => val ? val.split('T')[0] : '—' },
+    { name: 'Actions', render: (item) => (
+      <EuiFlexGroup gutterSize="s" responsive={false}>
+        <EuiFlexItem grow={false}>
+          <EuiButtonEmpty size="xs" onClick={() => { setEditUser(item); setModalMode('edit'); }}>Edit</EuiButtonEmpty>
+        </EuiFlexItem>
+        <EuiFlexItem grow={false}>
+          <EuiButtonEmpty size="xs" color="danger" onClick={() => setDeleteConfirm(item.username)}>Delete</EuiButtonEmpty>
+        </EuiFlexItem>
+      </EuiFlexGroup>
+    )},
+  ];
+
+  return (
+    <Fragment>
+      <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
+        <EuiFlexItem grow={false}>
+          <EuiTitle size="xs"><h3>Users ({users.length})</h3></EuiTitle>
+        </EuiFlexItem>
+        <EuiFlexItem grow={false}>
+          <EuiButton size="s" fill onClick={() => { setEditUser(null); setModalMode('add'); }}>+ Add user</EuiButton>
+        </EuiFlexItem>
+      </EuiFlexGroup>
+      <EuiSpacer size="m" />
+      {error && <EuiCallOut title="Error" color="danger"><p>{error}</p></EuiCallOut>}
+      <EuiBasicTable items={users} columns={columns} loading={loading} />
+
+      {modalMode && (
+        <UserFormModal
+          mode={modalMode}
+          user={editUser}
+          onClose={() => { setModalMode(null); setEditUser(null); }}
+          onSaved={() => { setModalMode(null); setEditUser(null); fetchUsers(); addToast(modalMode === 'add' ? 'User created' : 'User updated'); }}
+        />
+      )}
+
+      {deleteConfirm && (
+        <EuiConfirmModal
+          title={`Delete user "${deleteConfirm}"?`}
+          onCancel={() => setDeleteConfirm(null)}
+          onConfirm={() => handleDelete(deleteConfirm)}
+          cancelButtonText="Cancel"
+          confirmButtonText="Delete"
+          buttonColor="danger"
+        >
+          <p>This will permanently remove the user. Future connections using this account will fail, but existing sessions may continue until they reconnect.</p>
+        </EuiConfirmModal>
+      )}
+    </Fragment>
+  );
+}
+
+function UserFormModal({ mode, user, onClose, onSaved }) {
+  const [username, setUsername] = useState(user?.username || '');
+  const [password, setPassword] = useState('');
+  const [description, setDescription] = useState(user?.description || '');
+  const [enabled, setEnabled] = useState(user?.enabled ?? true);
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [loadingPassword, setLoadingPassword] = useState(false);
+
+  const isEdit = mode === 'edit';
+
+  // In edit mode, fetch the current password so the user can see/modify it.
+  useEffect(() => {
+    if (!isEdit || !user?.username) return;
+    setLoadingPassword(true);
+    fetch(`/api/users/${encodeURIComponent(user.username)}/watch`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data?.password) setPassword(data.password); })
+      .catch(() => {})
+      .finally(() => setLoadingPassword(false));
+  }, [isEdit, user?.username]);
+
+  const handleSave = () => {
+    setError(null);
+    if (!isEdit && !username.trim()) { setError('Username is required'); return; }
+    if (!isEdit && !password) { setError('Password is required'); return; }
+    if (!isEdit && !/^[a-zA-Z0-9_-]{1,64}$/.test(username)) { setError('Username must be 1-64 alphanumeric, hyphen, or underscore characters'); return; }
+
+    setSaving(true);
+    const url = isEdit ? `/api/users/${encodeURIComponent(user.username)}` : '/api/users';
+    const method = isEdit ? 'PUT' : 'POST';
+    const body = isEdit
+      ? JSON.stringify({ password, description, enabled })
+      : JSON.stringify({ username, password, description, enabled });
+
+    fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body })
+      .then((r) => {
+        if (!r.ok) return r.json().then((d) => Promise.reject(new Error(d.error || r.statusText)));
+        onSaved();
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setSaving(false));
+  };
+
+  return (
+    <EuiModal onClose={onClose} style={{ maxWidth: 450 }}>
+      <EuiModalHeader>
+        <EuiModalHeaderTitle>{isEdit ? `Edit user: ${user.username}` : 'Add user'}</EuiModalHeaderTitle>
+      </EuiModalHeader>
+      <EuiModalBody>
+        {error && <><EuiCallOut title={error} color="danger" size="s" /><EuiSpacer size="m" /></>}
+        <EuiFormRow label="Username">
+          <EuiFieldText
+            value={isEdit ? user.username : username}
+            onChange={(e) => setUsername(e.target.value)}
+            disabled={isEdit}
+            placeholder="alphanumeric, hyphen, underscore"
+          />
+        </EuiFormRow>
+        <EuiSpacer size="m" />
+        <EuiFormRow label="Password">
+          <EuiFieldPassword
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            type="dual"
+            isLoading={loadingPassword}
+          />
+        </EuiFormRow>
+        <EuiSpacer size="m" />
+        <EuiFormRow label="Description" helpText="Optional note (e.g. device, person, purpose)">
+          <EuiFieldText
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="e.g. Living room TV, Mom's phone"
+          />
+        </EuiFormRow>
+        <EuiSpacer size="m" />
+        <EuiSwitch label="Enabled" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+      </EuiModalBody>
+      <EuiModalFooter>
+        <EuiButtonEmpty onClick={onClose}>Cancel</EuiButtonEmpty>
+        <EuiButton onClick={handleSave} fill isLoading={saving}>
+          {isEdit ? 'Save changes' : 'Create user'}
+        </EuiButton>
+      </EuiModalFooter>
+    </EuiModal>
   );
 }

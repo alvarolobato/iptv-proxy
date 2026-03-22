@@ -84,4 +84,22 @@ type ProxyConfig struct {
 	ESIndexPrefix string
 	// StatsEnabled explicitly enables/disables stats (default: true when ESUrl is set).
 	StatsEnabled bool
+
+	// Users holds all proxy users. After MigrateDefaultUser runs at startup,
+	// the CLI --user/--password is included here. Auth and CRUD operate on this slice only.
+	Users []User
+}
+
+// User represents a proxy user with credentials.
+type User struct {
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	Description string `json:"description,omitempty"`
+	Enabled     bool   `json:"enabled"`
+	CreatedAt   string `json:"created_at,omitempty"` // RFC3339
+	// Phase 2 fields (forward compatibility):
+	GroupAllowList   []string `json:"group_allow_list,omitempty"`
+	GroupBlockList   []string `json:"group_block_list,omitempty"`
+	ChannelAllowList []string `json:"channel_allow_list,omitempty"`
+	ChannelBlockList []string `json:"channel_block_list,omitempty"`
 }
