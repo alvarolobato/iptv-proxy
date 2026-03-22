@@ -1,4 +1,4 @@
-# Delete the PR Docker image from ghcr.io when a PR is closed or merged.
+# Delete the PR Docker image from Docker Hub when a PR is closed or merged.
 name: PR Docker Cleanup
 
 on:
@@ -10,54 +10,26 @@ jobs:
   delete-pr-image:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete PR image from ghcr.io
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GH_TOKEN }}
-          script: |
-            const tag = `pr-${{ github.event.pull_request.number }}`;
-            const packageName = context.repo.repo;
-            const owner = context.repo.owner;
+      - name: Delete PR image tag from Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          TAG: pr-${{ github.event.pull_request.number }}
+        run: |
+          TOKEN=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"${DOCKERHUB_USERNAME}\",\"password\":\"${DOCKERHUB_TOKEN}\"}" \
+            https://hub.docker.com/v2/users/login/ | jq -r .token)
 
-            // List all versions of the package
-            let versions;
-            try {
-              const resp = await github.rest.packages.getAllPackageVersionsForPackageOwnedByUser({
-                package_type: 'container',
-                package_name: packageName,
-                username: owner,
-              });
-              versions = resp.data;
-            } catch (e) {
-              // Try org endpoint if user endpoint fails
-              const resp = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
-                package_type: 'container',
-                package_name: packageName,
-                org: owner,
-              });
-              versions = resp.data;
-            }
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+            -H "Authorization: JWT ${TOKEN}" \
+            "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/iptv-proxy2/tags/${TAG}/")
 
-            const target = versions.find(v => v.metadata?.container?.tags?.includes(tag));
-            if (!target) {
-              console.log(`No image found with tag ${tag}, nothing to delete.`);
-              return;
-            }
-
-            try {
-              await github.rest.packages.deletePackageVersionForUser({
-                package_type: 'container',
-                package_name: packageName,
-                username: owner,
-                package_version_id: target.id,
-              });
-            } catch (e) {
-              await github.rest.packages.deletePackageVersionForOrg({
-                package_type: 'container',
-                package_name: packageName,
-                org: owner,
-                package_version_id: target.id,
-              });
-            }
-
-            console.log(`Deleted image tag ${tag} (version id ${target.id})`);
+          if [ "$STATUS" = "204" ]; then
+            echo "Deleted tag ${TAG}"
+          elif [ "$STATUS" = "404" ]; then
+            echo "Tag ${TAG} not found, nothing to delete"
+          else
+            echo "Unexpected status ${STATUS} when deleting tag ${TAG}"
+            exit 1
+          fi
