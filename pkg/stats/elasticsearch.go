@@ -4,7 +4,7 @@
  * Copyright (C) 2020  Pierre-Emmanuel Jacquier
  *
  * New additions and modifications in this fork:
- * Copyright (C) 2024  Alvaro Lobato (github.com/alvarolobato/iptv-proxy)
+ * Copyright (C) 2026  Alvaro Lobato (github.com/alvarolobato/iptv-proxy)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
