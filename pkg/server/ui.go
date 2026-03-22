@@ -599,6 +599,13 @@ func (c *Config) apiUpdateUser(ctx *gin.Context) {
 
 	for i := range c.ProxyConfig.Users {
 		if c.ProxyConfig.Users[i].Username == username {
+			// Guard: don't allow disabling if it would leave zero enabled users.
+			if req.Enabled != nil && !*req.Enabled && c.ProxyConfig.Users[i].Enabled {
+				if c.ProxyConfig.EnabledUserCount() <= 1 {
+					ctx.JSON(http.StatusBadRequest, gin.H{"error": "cannot disable the last enabled user"})
+					return
+				}
+			}
 			if req.Password != nil && *req.Password != "" {
 				c.ProxyConfig.Users[i].Password = *req.Password
 			}
@@ -633,6 +640,11 @@ func (c *Config) apiDeleteUser(ctx *gin.Context) {
 
 	for i := range c.ProxyConfig.Users {
 		if c.ProxyConfig.Users[i].Username == username {
+			// Guard: don't allow deleting the last enabled user.
+			if c.ProxyConfig.Users[i].Enabled && c.ProxyConfig.EnabledUserCount() <= 1 {
+				ctx.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete the last enabled user"})
+				return
+			}
 			c.ProxyConfig.Users = append(c.ProxyConfig.Users[:i], c.ProxyConfig.Users[i+1:]...)
 			if err := c.persistUsers(); err != nil {
 				ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

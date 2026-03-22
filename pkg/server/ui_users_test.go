@@ -255,6 +255,50 @@ func TestAPIDeleteUser_DefaultUser(t *testing.T) {
 	}
 }
 
+func TestAPIDeleteUser_LastEnabledUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	conf := &config.ProxyConfig{
+		DataFolder: t.TempDir(),
+		Users: []config.User{
+			{Username: "solo", Password: "pass", Enabled: true},
+		},
+	}
+	config.EnsureStubSettings(conf.DataFolder)
+	c := &Config{ProxyConfig: conf}
+	r := setupUserRouter(c)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/api/users/solo", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 (cannot delete last enabled user), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAPIUpdateUser_DisableLastEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	conf := &config.ProxyConfig{
+		DataFolder: t.TempDir(),
+		Users: []config.User{
+			{Username: "solo", Password: "pass", Enabled: true},
+		},
+	}
+	config.EnsureStubSettings(conf.DataFolder)
+	c := &Config{ProxyConfig: conf}
+	r := setupUserRouter(c)
+
+	body, _ := json.Marshal(map[string]interface{}{"enabled": false})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/api/users/solo", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 (cannot disable last enabled user), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestAPIDeleteUser_NotFound(t *testing.T) {
 	c := setupUserTestConfig()
 	r := setupUserRouter(c)

@@ -26,7 +26,6 @@ type UserInfo struct {
 	Description string `json:"description,omitempty"`
 	Enabled     bool   `json:"enabled"`
 	CreatedAt   string `json:"created_at,omitempty"`
-	IsDefault   bool   `json:"is_default"`
 }
 
 // MigrateDefaultUser ensures the CLI --user/--password is present in the Users slice.
@@ -94,6 +93,17 @@ func (p *ProxyConfig) AllUsers() []UserInfo {
 		})
 	}
 	return out
+}
+
+// EnabledUserCount returns the number of enabled users.
+func (p *ProxyConfig) EnabledUserCount() int {
+	n := 0
+	for _, u := range p.Users {
+		if u.Enabled {
+			n++
+		}
+	}
+	return n
 }
 
 func constantTimeEqual(a, b string) bool {

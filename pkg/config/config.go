@@ -85,7 +85,8 @@ type ProxyConfig struct {
 	// StatsEnabled explicitly enables/disables stats (default: true when ESUrl is set).
 	StatsEnabled bool
 
-	// Users holds additional proxy users (from settings.json). The default user is User/Password above.
+	// Users holds all proxy users. After MigrateDefaultUser runs at startup,
+	// the CLI --user/--password is included here. Auth and CRUD operate on this slice only.
 	Users []User
 }
 

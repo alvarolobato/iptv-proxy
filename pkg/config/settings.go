@@ -352,7 +352,9 @@ func usersEqual(a, b []User) bool {
 		return false
 	}
 	for i := range a {
-		if a[i].Username != b[i].Username || a[i].Password != b[i].Password || a[i].Enabled != b[i].Enabled || a[i].CreatedAt != b[i].CreatedAt {
+		if a[i].Username != b[i].Username || a[i].Password != b[i].Password ||
+			a[i].Description != b[i].Description || a[i].Enabled != b[i].Enabled ||
+			a[i].CreatedAt != b[i].CreatedAt {
 			return false
 		}
 	}
