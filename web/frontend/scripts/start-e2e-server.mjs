@@ -34,6 +34,7 @@ const goldenSettings = {
   users: [
     { username: 'testuser1', password: 'testpass1', enabled: true, created_at: '2026-03-21T10:00:00Z' },
     { username: 'disableduser', password: 'dispass', enabled: false, created_at: '2026-03-21T11:00:00Z' },
+    { username: 'restricteduser', password: 'rpass', enabled: true, created_at: '2026-03-21T12:00:00Z', group_allow_list: ['^Group1$'], channel_block_list: ['^Premium.*'] },
   ],
 };
 fs.writeFileSync(settingsPath, JSON.stringify(goldenSettings, null, 2), 'utf8');

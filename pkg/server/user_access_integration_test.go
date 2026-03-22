@@ -48,7 +48,9 @@ func TestAPIGetUserAccess_NoRules(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	var resp map[string][]string
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 	if len(resp["group_allow_list"]) != 0 {
 		t.Errorf("expected empty group_allow_list, got %v", resp["group_allow_list"])
 	}
@@ -66,7 +68,9 @@ func TestAPIGetUserAccess_WithRules(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	var resp map[string][]string
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 	if len(resp["group_allow_list"]) != 1 || resp["group_allow_list"][0] != "^Sports$" {
 		t.Errorf("expected [^Sports$], got %v", resp["group_allow_list"])
 	}
@@ -172,7 +176,9 @@ func TestAPIListUsers_HasAccessRule(t *testing.T) {
 	var resp struct {
 		Users []map[string]interface{} `json:"users"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 
 	for _, u := range resp.Users {
 		name := u["username"].(string)
@@ -225,7 +231,9 @@ func TestXtream_PerUserFilter_GroupAllow(t *testing.T) {
 		t.Fatalf("HTTP %d: %s", w.Code, w.Body.String())
 	}
 	var cats []map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &cats)
+	if err := json.Unmarshal(w.Body.Bytes(), &cats); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 	names := categoryNames(cats)
 	if len(names) != 1 || names[0] != "Sports" {
 		t.Errorf("expected only Sports, got %v", names)
@@ -242,7 +250,9 @@ func TestXtream_PerUserFilter_GroupAllow(t *testing.T) {
 		t.Fatalf("HTTP %d: %s", w.Code, w.Body.String())
 	}
 	var streams []map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &streams)
+	if err := json.Unmarshal(w.Body.Bytes(), &streams); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 	streamN := streamNames(streams)
 	if len(streamN) != 2 {
 		t.Errorf("expected 2 Sports streams, got %d: %v", len(streamN), streamN)
@@ -280,7 +290,9 @@ func TestXtream_PerUserFilter_ChannelBlock(t *testing.T) {
 		t.Fatalf("HTTP %d: %s", w.Code, w.Body.String())
 	}
 	var streams []map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &streams)
+	if err := json.Unmarshal(w.Body.Bytes(), &streams); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 	names := streamNames(streams)
 	if len(names) != 4 {
 		t.Errorf("expected 4 streams (6-2), got %d: %v", len(names), names)
@@ -320,7 +332,9 @@ func TestXtream_PerUserFilter_NoRulesFullAccess(t *testing.T) {
 		t.Fatalf("HTTP %d: %s", w.Code, w.Body.String())
 	}
 	var streams []map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &streams)
+	if err := json.Unmarshal(w.Body.Bytes(), &streams); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 	if len(streams) != 6 {
 		t.Errorf("expected 6 streams (no filter), got %d", len(streams))
 	}
@@ -358,7 +372,9 @@ func TestXtream_PerUserFilter_CombinedWithGlobal(t *testing.T) {
 		t.Fatalf("HTTP %d: %s", w.Code, w.Body.String())
 	}
 	var streams []map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &streams)
+	if err := json.Unmarshal(w.Body.Bytes(), &streams); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
 	names := streamNames(streams)
 	// Global filter removes Entertainment, user allow list has Sports+Entertainment.
 	// Result: only Sports (2 streams).
