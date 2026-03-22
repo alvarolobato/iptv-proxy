@@ -149,6 +149,8 @@ func (c *Config) runUIServer() {
 	router.PUT("/api/users/:username", c.apiUpdateUser)
 	router.DELETE("/api/users/:username", c.apiDeleteUser)
 	router.GET("/api/users/:username/watch", c.apiUserWatch)
+	router.GET("/api/users/:username/access", c.apiGetUserAccess)
+	router.PUT("/api/users/:username/access", c.apiSetUserAccess)
 
 	// Stats API endpoints (Elasticsearch-backed; no-ops when ES not configured)
 	c.registerStatsRoutes(router)
@@ -675,6 +677,84 @@ func (c *Config) apiUserWatch(ctx *gin.Context) {
 		}
 	}
 	ctx.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+}
+
+// --- User access rules API ---
+
+type accessRulesResponse struct {
+	GroupAllowList   []string `json:"group_allow_list"`
+	GroupBlockList   []string `json:"group_block_list"`
+	ChannelAllowList []string `json:"channel_allow_list"`
+	ChannelBlockList []string `json:"channel_block_list"`
+}
+
+func (c *Config) apiGetUserAccess(ctx *gin.Context) {
+	username := ctx.Param("username")
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	user := c.ProxyConfig.FindUser(username)
+	if user == nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+	ctx.JSON(http.StatusOK, accessRulesResponse{
+		GroupAllowList:   nonNilSlice(user.GroupAllowList),
+		GroupBlockList:   nonNilSlice(user.GroupBlockList),
+		ChannelAllowList: nonNilSlice(user.ChannelAllowList),
+		ChannelBlockList: nonNilSlice(user.ChannelBlockList),
+	})
+}
+
+func (c *Config) apiSetUserAccess(ctx *gin.Context) {
+	username := ctx.Param("username")
+
+	var req accessRulesResponse
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate all regex patterns before applying.
+	if errs := ValidatePatterns(req.GroupAllowList, req.GroupBlockList, req.ChannelAllowList, req.ChannelBlockList); errs != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid regex patterns", "details": errs})
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.ProxyConfig.Users {
+		if c.ProxyConfig.Users[i].Username == username {
+			c.ProxyConfig.Users[i].GroupAllowList = req.GroupAllowList
+			c.ProxyConfig.Users[i].GroupBlockList = req.GroupBlockList
+			c.ProxyConfig.Users[i].ChannelAllowList = req.ChannelAllowList
+			c.ProxyConfig.Users[i].ChannelBlockList = req.ChannelBlockList
+
+			if err := c.persistUsers(); err != nil {
+				ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			log.Printf("[iptv-proxy] AUDIT: Access rules updated for user: %s", username)
+			ctx.JSON(http.StatusOK, accessRulesResponse{
+				GroupAllowList:   nonNilSlice(c.ProxyConfig.Users[i].GroupAllowList),
+				GroupBlockList:   nonNilSlice(c.ProxyConfig.Users[i].GroupBlockList),
+				ChannelAllowList: nonNilSlice(c.ProxyConfig.Users[i].ChannelAllowList),
+				ChannelBlockList: nonNilSlice(c.ProxyConfig.Users[i].ChannelBlockList),
+			})
+			return
+		}
+	}
+	ctx.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+}
+
+// nonNilSlice ensures a nil slice is returned as empty array in JSON.
+func nonNilSlice(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 // persistUsers writes the current users list to settings.json.

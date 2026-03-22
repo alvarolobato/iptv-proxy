@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/alvarolobato/iptv-proxy/pkg/config"
 	"github.com/alvarolobato/iptv-proxy/pkg/stats"
 )
 
@@ -66,15 +67,24 @@ func (c *Config) getM3U(ctx *gin.Context) {
 	userName := authUser.(string)
 	defaultUser := url.PathEscape(c.pathAuthUser())
 	defaultPass := url.PathEscape(c.pathAuthPassword())
-	// If requesting user is the one whose credentials are baked into the M3U, no rewriting needed.
-	if userName == c.pathAuthUser() {
-		ctx.File(c.proxyfiedM3UPath)
-		return
-	}
+
 	c.mu.RLock()
 	user := c.ProxyConfig.FindUser(userName)
 	c.mu.RUnlock()
 	if user == nil {
+		ctx.File(c.proxyfiedM3UPath)
+		return
+	}
+
+	// Per-user access filter (Phase 2): if the user has access rules, generate M3U on-the-fly.
+	filter := NewUserAccessFilter(user)
+	if filter != nil {
+		c.serveFilteredM3U(ctx, user, filter)
+		return
+	}
+
+	// Fast path: no per-user rules. If requesting user is the default, no rewriting needed.
+	if userName == c.pathAuthUser() {
 		ctx.File(c.proxyfiedM3UPath)
 		return
 	}
@@ -89,7 +99,90 @@ func (c *Config) getM3U(ctx *gin.Context) {
 	ctx.Data(http.StatusOK, "application/octet-stream", []byte(content))
 }
 
+// serveFilteredM3U generates an M3U on-the-fly with per-user access rules applied.
+func (c *Config) serveFilteredM3U(ctx *gin.Context, user *config.User, filter *UserAccessFilter) {
+	data, err := os.ReadFile(c.proxyfiedM3UPath)
+	if err != nil {
+		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+		return
+	}
+
+	defaultUser := url.PathEscape(c.pathAuthUser())
+	defaultPass := url.PathEscape(c.pathAuthPassword())
+	userEsc := url.PathEscape(user.Username)
+	passEsc := url.PathEscape(user.Password)
+
+	lines := strings.Split(string(data), "\n")
+	var buf strings.Builder
+	buf.Grow(len(data))
+
+	i := 0
+	for i < len(lines) {
+		line := lines[i]
+		if strings.HasPrefix(line, "#EXTINF:") {
+			// Parse group-title and channel name from the EXTINF line.
+			group := extractM3UTagValue(line, "group-title")
+			// Channel name is after the last comma.
+			channelName := ""
+			if idx := strings.LastIndex(line, ","); idx >= 0 {
+				channelName = strings.TrimSpace(line[idx+1:])
+			}
+			if filter.MatchTrack(group, channelName) {
+				// Rewrite credentials and include.
+				rewritten := strings.ReplaceAll(line, "/"+defaultUser+"/"+defaultPass+"/", "/"+userEsc+"/"+passEsc+"/")
+				buf.WriteString(rewritten)
+				buf.WriteByte('\n')
+				i++
+				if i < len(lines) {
+					rewritten = strings.ReplaceAll(lines[i], "/"+defaultUser+"/"+defaultPass+"/", "/"+userEsc+"/"+passEsc+"/")
+					buf.WriteString(rewritten)
+					buf.WriteByte('\n')
+				}
+			} else {
+				// Skip this track: skip EXTINF line and the URL line.
+				i++
+			}
+		} else {
+			// Header or other lines: rewrite credentials.
+			rewritten := strings.ReplaceAll(line, "/"+defaultUser+"/"+defaultPass+"/", "/"+userEsc+"/"+passEsc+"/")
+			buf.WriteString(rewritten)
+			buf.WriteByte('\n')
+		}
+		i++
+	}
+	ctx.Data(http.StatusOK, "application/octet-stream", []byte(strings.TrimRight(buf.String(), "\n")))
+}
+
+// extractM3UTagValue extracts a tag value like group-title="value" from an EXTINF line.
+func extractM3UTagValue(line, tagName string) string {
+	key := tagName + `="`
+	idx := strings.Index(line, key)
+	if idx < 0 {
+		return ""
+	}
+	start := idx + len(key)
+	end := strings.Index(line[start:], `"`)
+	if end < 0 {
+		return ""
+	}
+	return line[start : start+end]
+}
+
 func (c *Config) reverseProxy(ctx *gin.Context) {
+	// Per-user access check for M3U track streaming.
+	if c.track != nil {
+		if userName, ok := ctx.Get("authenticated_user"); ok {
+			c.mu.RLock()
+			user := c.ProxyConfig.FindUser(userName.(string))
+			c.mu.RUnlock()
+			filter := NewUserAccessFilter(user)
+			if filter != nil && !filter.MatchTrack(getGroupTitle(*c.track), c.track.Name) {
+				ctx.AbortWithStatus(http.StatusForbidden)
+				return
+			}
+		}
+	}
+
 	rpURL, err := url.Parse(c.track.URI)
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
@@ -236,6 +329,34 @@ func mergeHttpHeader(dst, src http.Header) {
 			dst.Add(k, v)
 		}
 	}
+}
+
+// checkUserStreamAccess verifies the authenticated user has access to the given stream.
+// Returns true if access is allowed. Sends 403 and returns false if blocked.
+func (c *Config) checkUserStreamAccess(ctx *gin.Context, streamID string) bool {
+	userName, ok := ctx.Get("authenticated_user")
+	if !ok {
+		return true
+	}
+	c.mu.RLock()
+	user := c.ProxyConfig.FindUser(userName.(string))
+	c.mu.RUnlock()
+	filter := NewUserAccessFilter(user)
+	if filter == nil {
+		return true
+	}
+	// Look up the track to get group/name for filtering.
+	t := c.lookupTrackByStreamID(streamID)
+	if t == nil {
+		return true // unknown stream, allow (will fail upstream if truly invalid)
+	}
+	group := getGroupTitle(*t)
+	name := t.Name
+	if !filter.MatchTrack(group, name) {
+		ctx.AbortWithStatus(http.StatusForbidden)
+		return false
+	}
+	return true
 }
 
 // authRequest handle auth credentials
