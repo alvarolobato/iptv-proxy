@@ -1,0 +1,35 @@
+# Delete the PR Docker image from Docker Hub when a PR is closed or merged.
+name: PR Docker Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [master, main]
+
+jobs:
+  delete-pr-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete PR image tag from Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          TAG: pr-${{ github.event.pull_request.number }}
+        run: |
+          TOKEN=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"${DOCKERHUB_USERNAME}\",\"password\":\"${DOCKERHUB_TOKEN}\"}" \
+            https://hub.docker.com/v2/users/login/ | jq -r .token)
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+            -H "Authorization: JWT ${TOKEN}" \
+            "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/iptv-proxy2/tags/${TAG}/")
+
+          if [ "$STATUS" = "204" ]; then
+            echo "Deleted tag ${TAG}"
+          elif [ "$STATUS" = "404" ]; then
+            echo "Tag ${TAG} not found, nothing to delete"
+          else
+            echo "Unexpected status ${STATUS} when deleting tag ${TAG}"
+            exit 1
+          fi
