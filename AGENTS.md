@@ -4,6 +4,14 @@ This file gives AI agents and future sessions application context and where to f
 
 **UI framework:** The configuration UI uses [Elastic UI (EUI)](https://eui.elastic.co/docs/components/). Refer to the [EUI component docs](https://eui.elastic.co/docs/components/) for patterns (tables, filter groups, buttons, etc.).
 
+## Module agents
+
+When working in a specific module, load the module's own agent context in addition to this file:
+
+| Working in | Load also |
+|---|---|
+| `dashboards/` | [`dashboards/AGENTS.md`](dashboards/AGENTS.md) — Kibana dashboard expert: YAML format, ES\|QL patterns, compile/upload workflow, IPTV data model |
+
 ---
 
 ## What the application does

@@ -1,0 +1,164 @@
+dashboards:
+  - name: "[IPTV] User Activity"
+    description: >
+      User leaderboard, per-user activity, and session history for iptv-proxy2.
+      Data sources: iptv.sessions, iptv.user_history.
+    time_range: last_30_days
+    settings:
+      sync_cursor: true
+
+    panels:
+      # ── Summary metrics ────────────────────────────────────────────────────
+      - title: Active Sessions
+        size: {w: 12, h: 8}
+        esql:
+          type: metric
+          query: |
+            FROM iptv.sessions
+            | WHERE @timestamp > NOW() - 5 minutes AND event_kind == "session_start"
+            | STATS active_sessions = COUNT(DISTINCT session_id)
+          primary:
+            field: active_sessions
+            label: Active Sessions
+
+      - title: Total Users
+        size: {w: 12, h: 8}
+        esql:
+          type: metric
+          query: |
+            FROM iptv.user_history
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | STATS total_users = COUNT_DISTINCT(user_name)
+          primary:
+            field: total_users
+            label: Unique Users
+
+      - title: Total Sessions
+        size: {w: 12, h: 8}
+        esql:
+          type: metric
+          query: |
+            FROM iptv.user_history
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | STATS total_sessions = COUNT(*)
+          primary:
+            field: total_sessions
+            label: Sessions
+
+      - title: Total Watch Time
+        size: {w: 12, h: 8}
+        esql:
+          type: metric
+          query: |
+            FROM iptv.user_history
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | STATS watch_hours = ROUND(SUM(duration_seconds) / 3600.0, 0)
+          primary:
+            field: watch_hours
+            label: Watch Hours
+
+      # ── User activity over time ────────────────────────────────────────────
+      - title: Session Starts Over Time
+        size: {w: 48, h: 15}
+        esql:
+          type: area
+          query: |
+            FROM iptv.sessions
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend AND event_kind == "session_start"
+            | STATS sessions = COUNT(*) BY
+                time_bucket = BUCKET(@timestamp, 20, ?_tstart, ?_tend),
+                user_name
+            | SORT time_bucket ASC
+          x_field: time_bucket
+          y_field: sessions
+          breakdown_field: user_name
+
+      # ── User leaderboard ──────────────────────────────────────────────────
+      - title: User Leaderboard
+        size: {w: 48, h: 20}
+        esql:
+          type: datatable
+          query: |
+            FROM iptv.user_history
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | STATS
+                sessions = COUNT(*),
+                total_hours = ROUND(SUM(duration_seconds) / 3600.0, 2),
+                total_gb = ROUND(SUM(bytes_transferred) / 1073741824.0, 3),
+                unique_channels = COUNT_DISTINCT(channel_id)
+              BY user_name
+            | SORT total_hours DESC
+            | LIMIT 50
+          columns:
+            - field: user_name
+              label: User
+            - field: sessions
+              label: Sessions
+            - field: total_hours
+              label: Watch Hours
+            - field: total_gb
+              label: Data (GB)
+            - field: unique_channels
+              label: Unique Channels
+
+      # ── Channel preferences ───────────────────────────────────────────────
+      - title: Top Channels by Watch Time
+        size: {w: 24, h: 15}
+        esql:
+          type: bar
+          query: |
+            FROM iptv.user_history
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | STATS watch_hours = ROUND(SUM(duration_seconds) / 3600.0, 1) BY channel_name
+            | SORT watch_hours DESC
+            | LIMIT 15
+          x_field: channel_name
+          y_field: watch_hours
+
+      - title: Watch Time by Channel Group
+        size: {w: 24, h: 15}
+        esql:
+          type: pie
+          query: |
+            FROM iptv.user_history
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | STATS watch_hours = ROUND(SUM(duration_seconds) / 3600.0, 1) BY channel_group
+            | SORT watch_hours DESC
+            | LIMIT 10
+          breakdown_field: channel_group
+          metric_field: watch_hours
+
+      # ── Recent sessions ───────────────────────────────────────────────────
+      - title: Recent Sessions
+        size: {w: 48, h: 20}
+        esql:
+          type: datatable
+          query: |
+            FROM iptv.user_history
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | EVAL duration_min = ROUND(duration_seconds / 60.0, 1)
+            | EVAL data_mb = ROUND(bytes_transferred / 1048576.0, 1)
+            | KEEP @timestamp, user_name, channel_name, channel_group, duration_min, data_mb, proxy_mode
+            | SORT @timestamp DESC
+            | LIMIT 100
+          columns:
+            - field: "@timestamp"
+              label: Time
+            - field: user_name
+              label: User
+            - field: channel_name
+              label: Channel
+            - field: channel_group
+              label: Group
+            - field: duration_min
+              label: Duration (min)
+            - field: data_mb
+              label: Data (MB)
+            - field: proxy_mode
+              label: Mode
+
+    controls:
+      - type: options
+        label: User
+        data_view: iptv.user_history
+        field: user_name

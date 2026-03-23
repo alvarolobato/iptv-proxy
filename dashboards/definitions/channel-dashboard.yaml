@@ -1,0 +1,162 @@
+dashboards:
+  - name: "[IPTV] Channel Metrics"
+    description: >
+      Channel performance metrics: concurrent viewers, bandwidth, errors, and group distribution.
+      Data sources: metrics-iptv.channel_metrics, iptv.sessions.
+    time_range: last_24_hours
+    settings:
+      sync_cursor: true
+
+    panels:
+      # ── Summary metrics ────────────────────────────────────────────────────
+      - title: Peak Concurrent Viewers
+        size: {w: 12, h: 8}
+        esql:
+          type: metric
+          query: |
+            FROM metrics-iptv.channel_metrics
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | STATS peak_viewers = MAX(active_sessions)
+          primary:
+            field: peak_viewers
+            label: Peak Concurrent
+
+      - title: Total Channels Watched
+        size: {w: 12, h: 8}
+        esql:
+          type: metric
+          query: |
+            FROM metrics-iptv.channel_metrics
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | WHERE session_count > 0
+            | STATS channels_active = COUNT_DISTINCT(channel_id)
+          primary:
+            field: channels_active
+            label: Active Channels
+
+      - title: Total Bandwidth
+        size: {w: 12, h: 8}
+        esql:
+          type: metric
+          query: |
+            FROM metrics-iptv.channel_metrics
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | STATS total_gb = ROUND(SUM(bytes_transferred) / 1073741824.0, 1)
+          primary:
+            field: total_gb
+            label: Total GB
+
+      - title: Stream Errors
+        size: {w: 12, h: 8}
+        esql:
+          type: metric
+          query: |
+            FROM iptv.sessions
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend AND event_kind == "session_error"
+            | STATS errors = COUNT(*)
+          primary:
+            field: errors
+            label: Errors
+
+      # ── Active sessions timeline ───────────────────────────────────────────
+      - title: Concurrent Viewers Over Time
+        size: {w: 48, h: 15}
+        esql:
+          type: line
+          query: |
+            FROM metrics-iptv.channel_metrics
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | STATS viewers = MAX(active_sessions) BY
+                time_bucket = BUCKET(@timestamp, 20, ?_tstart, ?_tend),
+                channel_name
+            | SORT time_bucket ASC
+          x_field: time_bucket
+          y_field: viewers
+          breakdown_field: channel_name
+
+      # ── Top channels ──────────────────────────────────────────────────────
+      - title: Top Channels by Watch Time
+        size: {w: 48, h: 20}
+        esql:
+          type: datatable
+          query: |
+            FROM metrics-iptv.channel_metrics
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | STATS
+                total_sessions = SUM(session_count),
+                peak_viewers = MAX(active_sessions),
+                total_hours = ROUND(SUM(total_duration_seconds) / 3600.0, 1),
+                total_gb = ROUND(SUM(bytes_transferred) / 1073741824.0, 2),
+                errors = SUM(error_count)
+              BY channel_name, channel_group, channel_type
+            | SORT total_hours DESC
+            | LIMIT 50
+          columns:
+            - field: channel_name
+              label: Channel
+            - field: channel_group
+              label: Group
+            - field: channel_type
+              label: Type
+            - field: total_sessions
+              label: Sessions
+            - field: peak_viewers
+              label: Peak Viewers
+            - field: total_hours
+              label: Watch Hours
+            - field: total_gb
+              label: Bandwidth (GB)
+            - field: errors
+              label: Errors
+
+      # ── Group distribution ────────────────────────────────────────────────
+      - title: Watch Time by Group
+        size: {w: 24, h: 15}
+        esql:
+          type: pie
+          query: |
+            FROM metrics-iptv.channel_metrics
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | STATS watch_hours = ROUND(SUM(total_duration_seconds) / 3600.0, 1) BY channel_group
+            | SORT watch_hours DESC
+            | LIMIT 10
+          breakdown_field: channel_group
+          metric_field: watch_hours
+
+      - title: Watch Time by Channel Type
+        size: {w: 24, h: 15}
+        esql:
+          type: pie
+          query: |
+            FROM metrics-iptv.channel_metrics
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | STATS watch_hours = ROUND(SUM(total_duration_seconds) / 3600.0, 1) BY channel_type
+            | SORT watch_hours DESC
+          breakdown_field: channel_type
+          metric_field: watch_hours
+
+      # ── Bandwidth over time ───────────────────────────────────────────────
+      - title: Bandwidth Over Time (GB)
+        size: {w: 48, h: 15}
+        esql:
+          type: area
+          query: |
+            FROM metrics-iptv.channel_metrics
+            | WHERE @timestamp >= ?_tstart AND @timestamp <= ?_tend
+            | STATS bandwidth_gb = ROUND(SUM(bytes_transferred) / 1073741824.0, 3) BY
+                time_bucket = BUCKET(@timestamp, 20, ?_tstart, ?_tend),
+                channel_group
+            | SORT time_bucket ASC
+          x_field: time_bucket
+          y_field: bandwidth_gb
+          breakdown_field: channel_group
+
+    controls:
+      - type: options
+        label: Channel Group
+        data_view: metrics-iptv.channel_metrics
+        field: channel_group
+      - type: options
+        label: Channel Type
+        data_view: metrics-iptv.channel_metrics
+        field: channel_type
