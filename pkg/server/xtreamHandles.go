@@ -273,6 +273,10 @@ func (c *Config) xtreamPlayerAPI(ctx *gin.Context, q url.Values) {
 	}
 
 	resp = c.filterXtreamResponse(action, resp)
+	// Per-user access filter (Phase 2): apply user-specific allow/block lists.
+	if userName, ok := ctx.Get("authenticated_user"); ok {
+		resp = c.filterXtreamResponseForUser(action, resp, userName.(string))
+	}
 	resp = c.applyXtreamReplacements(action, resp)
 	ctx.JSON(http.StatusOK, resp)
 }
@@ -331,23 +335,29 @@ func (c *Config) xtreamXMLTV(ctx *gin.Context) {
 
 func (c *Config) xtreamStreamHandler(ctx *gin.Context) {
 	id := ctx.Param("id")
+	streamID := strings.Split(id, ".")[0]
+	if !c.checkUserStreamAccess(ctx, streamID) {
+		return
+	}
 	rpURL, err := url.Parse(fmt.Sprintf("%s/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
-	streamID := strings.Split(id, ".")[0]
 	c.xtreamStreamWithChannelInfo(ctx, rpURL, streamID, stats.ChannelTypeLive)
 }
 
 func (c *Config) xtreamStreamLive(ctx *gin.Context) {
 	id := ctx.Param("id")
+	streamID := strings.Split(id, ".")[0]
+	if !c.checkUserStreamAccess(ctx, streamID) {
+		return
+	}
 	rpURL, err := url.Parse(fmt.Sprintf("%s/live/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
-	streamID := strings.Split(id, ".")[0]
 	c.xtreamStreamWithChannelInfo(ctx, rpURL, streamID, stats.ChannelTypeLive)
 }
 
@@ -372,12 +382,15 @@ func (c *Config) xtreamPlayDispatch(ctx *gin.Context) {
 			return
 		}
 		ctx.Set("authenticated_user", matched)
+		streamID := strings.Split(id, ".")[0]
+		if !c.checkUserStreamAccess(ctx, streamID) {
+			return
+		}
 		rpURL, err := url.Parse(fmt.Sprintf("%s/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
 		if err != nil {
 			ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 			return
 		}
-		streamID := strings.Split(id, ".")[0]
 		c.xtreamStreamWithChannelInfo(ctx, rpURL, streamID, stats.ChannelTypeLive)
 	case 2:
 		// /play/:token/:type — no auth
@@ -408,23 +421,29 @@ func (c *Config) xtreamStreamTimeshift(ctx *gin.Context) {
 
 func (c *Config) xtreamStreamMovie(ctx *gin.Context) {
 	id := ctx.Param("id")
+	streamID := strings.Split(id, ".")[0]
+	if !c.checkUserStreamAccess(ctx, streamID) {
+		return
+	}
 	rpURL, err := url.Parse(fmt.Sprintf("%s/movie/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
-	streamID := strings.Split(id, ".")[0]
 	c.xtreamStreamWithChannelInfo(ctx, rpURL, streamID, stats.ChannelTypeMovie)
 }
 
 func (c *Config) xtreamStreamSeries(ctx *gin.Context) {
 	id := ctx.Param("id")
+	streamID := strings.Split(id, ".")[0]
+	if !c.checkUserStreamAccess(ctx, streamID) {
+		return
+	}
 	rpURL, err := url.Parse(fmt.Sprintf("%s/series/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
 	}
-	streamID := strings.Split(id, ".")[0]
 	c.xtreamStreamWithChannelInfo(ctx, rpURL, streamID, stats.ChannelTypeSeries)
 }
 
@@ -639,6 +658,60 @@ func (c *Config) filterXtreamResponse(action string, resp interface{}) interface
 		out := make([]xtreamcodes.SeriesInfo, 0, len(series))
 		for _, s := range series {
 			if matchInclusionExclusion("", s.Name, nil, nil, channelInclRE, channelExclRE) {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+
+	return resp
+}
+
+// filterXtreamResponseForUser applies per-user access rules to an Xtream API response.
+func (c *Config) filterXtreamResponseForUser(action string, resp interface{}, username string) interface{} {
+	c.mu.RLock()
+	user := c.ProxyConfig.FindUser(username)
+	c.mu.RUnlock()
+	filter := NewUserAccessFilter(user)
+	if filter == nil {
+		return resp
+	}
+
+	switch action {
+	case "get_live_categories", "get_vod_categories", "get_series_categories":
+		cats, ok := resp.([]xtreamcodes.Category)
+		if !ok {
+			return resp
+		}
+		out := make([]xtreamcodes.Category, 0, len(cats))
+		for _, cat := range cats {
+			if filter.MatchTrack(cat.Name, "") {
+				out = append(out, cat)
+			}
+		}
+		return out
+
+	case "get_live_streams", "get_vod_streams":
+		streams, ok := resp.([]xtreamcodes.Stream)
+		if !ok {
+			return resp
+		}
+		out := make([]xtreamcodes.Stream, 0, len(streams))
+		for _, s := range streams {
+			if filter.MatchTrack(s.CategoryName, s.Name) {
+				out = append(out, s)
+			}
+		}
+		return out
+
+	case "get_series":
+		series, ok := resp.([]xtreamcodes.SeriesInfo)
+		if !ok {
+			return resp
+		}
+		out := make([]xtreamcodes.SeriesInfo, 0, len(series))
+		for _, s := range series {
+			if filter.MatchTrack("", s.Name) {
 				out = append(out, s)
 			}
 		}

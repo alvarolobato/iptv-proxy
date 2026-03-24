@@ -62,6 +62,7 @@ func (c *Config) statsActive(ctx *gin.Context) {
 }
 
 // statsTopChannels returns the top channels by total watch time (last 7 days by default).
+// When ?user= is specified, filters to that user's sessions only (queries user_history instead of channel_metrics).
 func (c *Config) statsTopChannels(ctx *gin.Context) {
 	esColl, ok := c.statsCollector.(*stats.ESCollector)
 	if !ok {
@@ -81,8 +82,63 @@ func (c *Config) statsTopChannels(ctx *gin.Context) {
 			size = n
 		}
 	}
+	userName := ctx.Query("user")
 
 	from := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
+
+	// When filtering by user, query user_history (has user_name) instead of channel_metrics (no user_name).
+	if userName != "" {
+		query := map[string]interface{}{
+			"size": 0,
+			"query": map[string]interface{}{
+				"bool": map[string]interface{}{
+					"filter": []interface{}{
+						map[string]interface{}{"term": map[string]interface{}{"user_name": userName}},
+						map[string]interface{}{
+							"range": map[string]interface{}{
+								"@timestamp": map[string]interface{}{"gte": from.Format(time.RFC3339)},
+							},
+						},
+					},
+				},
+			},
+			"aggs": map[string]interface{}{
+				"top_channels": map[string]interface{}{
+					"terms": map[string]interface{}{
+						"field": "channel_id",
+						"size":  size,
+						"order": map[string]interface{}{"total_duration": "desc"},
+					},
+					"aggs": map[string]interface{}{
+						"total_duration": map[string]interface{}{
+							"sum": map[string]interface{}{"field": "duration_seconds"},
+						},
+						"total_sessions": map[string]interface{}{
+							"value_count": map[string]interface{}{"field": "session_id"},
+						},
+						"total_bytes": map[string]interface{}{
+							"sum": map[string]interface{}{"field": "bytes_transferred"},
+						},
+						"channel_name": map[string]interface{}{
+							"terms": map[string]interface{}{"field": "channel_name", "size": 1},
+						},
+						"channel_group": map[string]interface{}{
+							"terms": map[string]interface{}{"field": "channel_group", "size": 1},
+						},
+					},
+				},
+			},
+		}
+		result, err := esColl.SearchDocs(esColl.UserHistoryIndexName(), query)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		ctx.Header("Cache-Control", "private, max-age=60")
+		ctx.JSON(http.StatusOK, gin.H{"stats_enabled": true, "days": days, "user": userName, "raw": result})
+		return
+	}
+
 	query := map[string]interface{}{
 		"size": 0,
 		"query": map[string]interface{}{
@@ -141,6 +197,7 @@ func (c *Config) statsTopChannels(ctx *gin.Context) {
 }
 
 // statsTopGroups returns the top groups by total watch time.
+// When ?user= is specified, filters to that user's sessions only (queries user_history instead of channel_metrics).
 func (c *Config) statsTopGroups(ctx *gin.Context) {
 	esColl, ok := c.statsCollector.(*stats.ESCollector)
 	if !ok {
@@ -160,8 +217,56 @@ func (c *Config) statsTopGroups(ctx *gin.Context) {
 			size = n
 		}
 	}
+	userName := ctx.Query("user")
 
 	from := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
+
+	if userName != "" {
+		query := map[string]interface{}{
+			"size": 0,
+			"query": map[string]interface{}{
+				"bool": map[string]interface{}{
+					"filter": []interface{}{
+						map[string]interface{}{"term": map[string]interface{}{"user_name": userName}},
+						map[string]interface{}{
+							"range": map[string]interface{}{
+								"@timestamp": map[string]interface{}{"gte": from.Format(time.RFC3339)},
+							},
+						},
+					},
+				},
+			},
+			"aggs": map[string]interface{}{
+				"top_groups": map[string]interface{}{
+					"terms": map[string]interface{}{
+						"field": "channel_group",
+						"size":  size,
+						"order": map[string]interface{}{"total_duration": "desc"},
+					},
+					"aggs": map[string]interface{}{
+						"total_duration": map[string]interface{}{
+							"sum": map[string]interface{}{"field": "duration_seconds"},
+						},
+						"total_sessions": map[string]interface{}{
+							"value_count": map[string]interface{}{"field": "session_id"},
+						},
+						"unique_channels": map[string]interface{}{
+							"cardinality": map[string]interface{}{"field": "channel_id"},
+						},
+					},
+				},
+			},
+		}
+		result, err := esColl.SearchDocs(esColl.UserHistoryIndexName(), query)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		ctx.Header("Cache-Control", "private, max-age=60")
+		ctx.JSON(http.StatusOK, gin.H{"stats_enabled": true, "days": days, "user": userName, "raw": result})
+		return
+	}
+
 	query := map[string]interface{}{
 		"size": 0,
 		"query": map[string]interface{}{
@@ -209,6 +314,7 @@ func (c *Config) statsTopGroups(ctx *gin.Context) {
 
 // statsHeatmap returns hourly session event counts for the last N days (default 7).
 // The result is a 24×7 matrix (hour × day_of_week) suitable for a heatmap visualization.
+// When ?user= is specified, filters to that user's sessions only.
 func (c *Config) statsHeatmap(ctx *gin.Context) {
 	esColl, ok := c.statsCollector.(*stats.ESCollector)
 	if !ok {
@@ -222,22 +328,30 @@ func (c *Config) statsHeatmap(ctx *gin.Context) {
 			days = n
 		}
 	}
+	userName := ctx.Query("user")
 
 	from := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
+	filters := []interface{}{
+		map[string]interface{}{
+			"term": map[string]interface{}{"event_kind": "session_start"},
+		},
+		map[string]interface{}{
+			"range": map[string]interface{}{
+				"@timestamp": map[string]interface{}{"gte": from.Format(time.RFC3339)},
+			},
+		},
+	}
+	if userName != "" {
+		filters = append(filters, map[string]interface{}{
+			"term": map[string]interface{}{"user_name": userName},
+		})
+	}
+
 	query := map[string]interface{}{
 		"size": 0,
 		"query": map[string]interface{}{
 			"bool": map[string]interface{}{
-				"filter": []interface{}{
-					map[string]interface{}{
-						"term": map[string]interface{}{"event_kind": "session_start"},
-					},
-					map[string]interface{}{
-						"range": map[string]interface{}{
-							"@timestamp": map[string]interface{}{"gte": from.Format(time.RFC3339)},
-						},
-					},
-				},
+				"filter": filters,
 			},
 		},
 		"aggs": map[string]interface{}{
@@ -257,12 +371,16 @@ func (c *Config) statsHeatmap(ctx *gin.Context) {
 		return
 	}
 
-	ctx.Header("Cache-Control", "private, max-age=300")
-	ctx.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"stats_enabled": true,
 		"days":          days,
 		"raw":           result,
-	})
+	}
+	if userName != "" {
+		resp["user"] = userName
+	}
+	ctx.Header("Cache-Control", "private, max-age=300")
+	ctx.JSON(http.StatusOK, resp)
 }
 
 // statsUsers returns per-user session statistics.
@@ -330,6 +448,7 @@ func (c *Config) statsUsers(ctx *gin.Context) {
 }
 
 // statsChannel returns per-channel historical metrics and recent sessions.
+// When ?user= is specified, filters metrics and sessions to that user only.
 func (c *Config) statsChannel(ctx *gin.Context) {
 	esColl, ok := c.statsCollector.(*stats.ESCollector)
 	if !ok {
@@ -344,68 +463,115 @@ func (c *Config) statsChannel(ctx *gin.Context) {
 			days = n
 		}
 	}
+	userName := ctx.Query("user")
 
 	from := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
-	// Get aggregate metrics
-	metricsQuery := map[string]interface{}{
-		"size": 0,
-		"query": map[string]interface{}{
-			"bool": map[string]interface{}{
-				"filter": []interface{}{
-					map[string]interface{}{"term": map[string]interface{}{"channel_id": channelID}},
-					map[string]interface{}{
-						"range": map[string]interface{}{
-							"@timestamp": map[string]interface{}{"gte": from.Format(time.RFC3339)},
+
+	var metricsResult interface{}
+	var err error
+
+	if userName != "" {
+		// Query user_history for per-user channel metrics (channel_metrics has no user_name).
+		metricsFilters := []interface{}{
+			map[string]interface{}{"term": map[string]interface{}{"channel_id": channelID}},
+			map[string]interface{}{"term": map[string]interface{}{"user_name": userName}},
+			map[string]interface{}{
+				"range": map[string]interface{}{
+					"@timestamp": map[string]interface{}{"gte": from.Format(time.RFC3339)},
+				},
+			},
+		}
+		metricsQuery := map[string]interface{}{
+			"size": 0,
+			"query": map[string]interface{}{
+				"bool": map[string]interface{}{"filter": metricsFilters},
+			},
+			"aggs": map[string]interface{}{
+				"total_duration": map[string]interface{}{
+					"sum": map[string]interface{}{"field": "duration_seconds"},
+				},
+				"total_sessions": map[string]interface{}{
+					"value_count": map[string]interface{}{"field": "session_id"},
+				},
+				"total_bytes": map[string]interface{}{
+					"sum": map[string]interface{}{"field": "bytes_transferred"},
+				},
+				"by_hour": map[string]interface{}{
+					"date_histogram": map[string]interface{}{
+						"field":             "@timestamp",
+						"calendar_interval": "hour",
+						"min_doc_count":     1,
+					},
+				},
+			},
+		}
+		metricsResult, err = esColl.SearchDocs(esColl.UserHistoryIndexName(), metricsQuery)
+	} else {
+		metricsQuery := map[string]interface{}{
+			"size": 0,
+			"query": map[string]interface{}{
+				"bool": map[string]interface{}{
+					"filter": []interface{}{
+						map[string]interface{}{"term": map[string]interface{}{"channel_id": channelID}},
+						map[string]interface{}{
+							"range": map[string]interface{}{
+								"@timestamp": map[string]interface{}{"gte": from.Format(time.RFC3339)},
+							},
 						},
 					},
 				},
 			},
-		},
-		"aggs": map[string]interface{}{
-			"total_duration": map[string]interface{}{
-				"sum": map[string]interface{}{"field": "total_duration_seconds"},
-			},
-			"total_sessions": map[string]interface{}{
-				"sum": map[string]interface{}{"field": "session_count"},
-			},
-			"total_bytes": map[string]interface{}{
-				"sum": map[string]interface{}{"field": "bytes_transferred"},
-			},
-			"by_hour": map[string]interface{}{
-				"date_histogram": map[string]interface{}{
-					"field":             "@timestamp",
-					"calendar_interval": "hour",
-					"min_doc_count":     1,
+			"aggs": map[string]interface{}{
+				"total_duration": map[string]interface{}{
+					"sum": map[string]interface{}{"field": "total_duration_seconds"},
 				},
-				"aggs": map[string]interface{}{
-					"sessions": map[string]interface{}{
-						"sum": map[string]interface{}{"field": "session_count"},
+				"total_sessions": map[string]interface{}{
+					"sum": map[string]interface{}{"field": "session_count"},
+				},
+				"total_bytes": map[string]interface{}{
+					"sum": map[string]interface{}{"field": "bytes_transferred"},
+				},
+				"by_hour": map[string]interface{}{
+					"date_histogram": map[string]interface{}{
+						"field":             "@timestamp",
+						"calendar_interval": "hour",
+						"min_doc_count":     1,
+					},
+					"aggs": map[string]interface{}{
+						"sessions": map[string]interface{}{
+							"sum": map[string]interface{}{"field": "session_count"},
+						},
 					},
 				},
 			},
-		},
+		}
+		metricsResult, err = esColl.SearchDocs(esColl.ChannelMetricsIndexName(), metricsQuery)
 	}
-
-	metricsResult, err := esColl.SearchDocs(esColl.ChannelMetricsIndexName(), metricsQuery)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Get recent sessions
+	// Get recent sessions (sessions index has user_name)
+	sessionsFilters := []interface{}{
+		map[string]interface{}{"term": map[string]interface{}{"channel_id": channelID}},
+		map[string]interface{}{"term": map[string]interface{}{"event_kind": "session_end"}},
+		map[string]interface{}{
+			"range": map[string]interface{}{
+				"@timestamp": map[string]interface{}{"gte": from.Format(time.RFC3339)},
+			},
+		},
+	}
+	if userName != "" {
+		sessionsFilters = append(sessionsFilters, map[string]interface{}{
+			"term": map[string]interface{}{"user_name": userName},
+		})
+	}
 	sessionsQuery := map[string]interface{}{
 		"size": 20,
 		"query": map[string]interface{}{
 			"bool": map[string]interface{}{
-				"filter": []interface{}{
-					map[string]interface{}{"term": map[string]interface{}{"channel_id": channelID}},
-					map[string]interface{}{"term": map[string]interface{}{"event_kind": "session_end"}},
-					map[string]interface{}{
-						"range": map[string]interface{}{
-							"@timestamp": map[string]interface{}{"gte": from.Format(time.RFC3339)},
-						},
-					},
-				},
+				"filter": sessionsFilters,
 			},
 		},
 		"sort": []interface{}{
@@ -419,14 +585,18 @@ func (c *Config) statsChannel(ctx *gin.Context) {
 		return
 	}
 
-	ctx.Header("Cache-Control", "private, max-age=60")
-	ctx.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"stats_enabled":   true,
 		"channel_id":      channelID,
 		"days":            days,
 		"metrics":         metricsResult,
 		"recent_sessions": sessionsResult,
-	})
+	}
+	if userName != "" {
+		resp["user"] = userName
+	}
+	ctx.Header("Cache-Control", "private, max-age=60")
+	ctx.JSON(http.StatusOK, resp)
 }
 
 // statsUserHistory returns recent sessions for the authenticated user.

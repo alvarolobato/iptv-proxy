@@ -1846,6 +1846,9 @@ function UsersTab({ addToast }) {
     { field: 'enabled', name: 'Status', render: (val) => (
       <EuiBadge color={val ? 'success' : 'warning'}>{val ? 'Enabled' : 'Disabled'}</EuiBadge>
     )},
+    { field: 'has_access_rule', name: 'Access', render: (val) => val ? (
+      <EuiBadge color="primary">Custom access</EuiBadge>
+    ) : <span style={{ color: '#98A2B3' }}>Full access</span> },
     { field: 'created_at', name: 'Created', render: (val) => val ? val.split('T')[0] : '—' },
     { name: 'Actions', render: (item) => (
       <EuiFlexGroup gutterSize="s" responsive={false}>
@@ -1899,6 +1902,7 @@ function UsersTab({ addToast }) {
 }
 
 function UserFormModal({ mode, user, onClose, onSaved }) {
+  const [activeTab, setActiveTab] = useState('general');
   const [username, setUsername] = useState(user?.username || '');
   const [password, setPassword] = useState('');
   const [description, setDescription] = useState(user?.description || '');
@@ -1906,6 +1910,14 @@ function UserFormModal({ mode, user, onClose, onSaved }) {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [loadingPassword, setLoadingPassword] = useState(false);
+
+  // Access control state
+  const [groupAllow, setGroupAllow] = useState([]);
+  const [groupBlock, setGroupBlock] = useState([]);
+  const [channelAllow, setChannelAllow] = useState([]);
+  const [channelBlock, setChannelBlock] = useState([]);
+  const [loadingAccess, setLoadingAccess] = useState(false);
+  const [accessDirty, setAccessDirty] = useState(false);
 
   const isEdit = mode === 'edit';
 
@@ -1920,6 +1932,24 @@ function UserFormModal({ mode, user, onClose, onSaved }) {
       .finally(() => setLoadingPassword(false));
   }, [isEdit, user?.username]);
 
+  // In edit mode, fetch current access rules.
+  useEffect(() => {
+    if (!isEdit || !user?.username) return;
+    setLoadingAccess(true);
+    fetch(`/api/users/${encodeURIComponent(user.username)}/access`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data) {
+          setGroupAllow(data.group_allow_list || []);
+          setGroupBlock(data.group_block_list || []);
+          setChannelAllow(data.channel_allow_list || []);
+          setChannelBlock(data.channel_block_list || []);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingAccess(false));
+  }, [isEdit, user?.username]);
+
   const handleSave = () => {
     setError(null);
     if (!isEdit && !username.trim()) { setError('Username is required'); return; }
@@ -1927,55 +1957,94 @@ function UserFormModal({ mode, user, onClose, onSaved }) {
     if (!isEdit && !/^[a-zA-Z0-9_-]{1,64}$/.test(username)) { setError('Username must be 1-64 alphanumeric, hyphen, or underscore characters'); return; }
 
     setSaving(true);
-    const url = isEdit ? `/api/users/${encodeURIComponent(user.username)}` : '/api/users';
+    const userUrl = isEdit ? `/api/users/${encodeURIComponent(user.username)}` : '/api/users';
     const method = isEdit ? 'PUT' : 'POST';
     const body = isEdit
       ? JSON.stringify({ password, description, enabled })
       : JSON.stringify({ username, password, description, enabled });
 
-    fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body })
+    fetch(userUrl, { method, headers: { 'Content-Type': 'application/json' }, body })
       .then((r) => {
         if (!r.ok) return r.json().then((d) => Promise.reject(new Error(d.error || r.statusText)));
-        onSaved();
+        // Save access rules if changed (for edit mode) or if patterns exist (for new user).
+        const uname = isEdit ? user.username : username;
+        const hasAccessRules = groupAllow.length + groupBlock.length + channelAllow.length + channelBlock.length > 0;
+        if (hasAccessRules || accessDirty) {
+          return fetch(`/api/users/${encodeURIComponent(uname)}/access`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              group_allow_list: groupAllow,
+              group_block_list: groupBlock,
+              channel_allow_list: channelAllow,
+              channel_block_list: channelBlock,
+            }),
+          }).then((r2) => {
+            if (!r2.ok) return r2.json().then((d) => Promise.reject(new Error(d.error || r2.statusText)));
+          });
+        }
       })
+      .then(() => onSaved())
       .catch((e) => setError(e.message))
       .finally(() => setSaving(false));
   };
 
   return (
-    <EuiModal onClose={onClose} style={{ maxWidth: 450 }}>
+    <EuiModal onClose={onClose} style={{ maxWidth: 550 }}>
       <EuiModalHeader>
         <EuiModalHeaderTitle>{isEdit ? `Edit user: ${user.username}` : 'Add user'}</EuiModalHeaderTitle>
       </EuiModalHeader>
       <EuiModalBody>
         {error && <><EuiCallOut title={error} color="danger" size="s" /><EuiSpacer size="m" /></>}
-        <EuiFormRow label="Username">
-          <EuiFieldText
-            value={isEdit ? user.username : username}
-            onChange={(e) => setUsername(e.target.value)}
-            disabled={isEdit}
-            placeholder="alphanumeric, hyphen, underscore"
+        {isEdit && (
+          <>
+            <EuiTabs>
+              <EuiTab onClick={() => setActiveTab('general')} isSelected={activeTab === 'general'}>General</EuiTab>
+              <EuiTab onClick={() => setActiveTab('access')} isSelected={activeTab === 'access'}>Access control</EuiTab>
+            </EuiTabs>
+            <EuiSpacer size="m" />
+          </>
+        )}
+        {activeTab === 'general' && (
+          <>
+            <EuiFormRow label="Username">
+              <EuiFieldText
+                value={isEdit ? user.username : username}
+                onChange={(e) => setUsername(e.target.value)}
+                disabled={isEdit}
+                placeholder="alphanumeric, hyphen, underscore"
+              />
+            </EuiFormRow>
+            <EuiSpacer size="m" />
+            <EuiFormRow label="Password">
+              <EuiFieldPassword
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="dual"
+                isLoading={loadingPassword}
+              />
+            </EuiFormRow>
+            <EuiSpacer size="m" />
+            <EuiFormRow label="Description" helpText="Optional note (e.g. device, person, purpose)">
+              <EuiFieldText
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="e.g. Living room TV, Mom's phone"
+              />
+            </EuiFormRow>
+            <EuiSpacer size="m" />
+            <EuiSwitch label="Enabled" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          </>
+        )}
+        {activeTab === 'access' && (
+          <AccessControlTab
+            groupAllow={groupAllow} setGroupAllow={(v) => { setGroupAllow(v); setAccessDirty(true); }}
+            groupBlock={groupBlock} setGroupBlock={(v) => { setGroupBlock(v); setAccessDirty(true); }}
+            channelAllow={channelAllow} setChannelAllow={(v) => { setChannelAllow(v); setAccessDirty(true); }}
+            channelBlock={channelBlock} setChannelBlock={(v) => { setChannelBlock(v); setAccessDirty(true); }}
+            loading={loadingAccess}
           />
-        </EuiFormRow>
-        <EuiSpacer size="m" />
-        <EuiFormRow label="Password">
-          <EuiFieldPassword
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            type="dual"
-            isLoading={loadingPassword}
-          />
-        </EuiFormRow>
-        <EuiSpacer size="m" />
-        <EuiFormRow label="Description" helpText="Optional note (e.g. device, person, purpose)">
-          <EuiFieldText
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g. Living room TV, Mom's phone"
-          />
-        </EuiFormRow>
-        <EuiSpacer size="m" />
-        <EuiSwitch label="Enabled" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        )}
       </EuiModalBody>
       <EuiModalFooter>
         <EuiButtonEmpty onClick={onClose}>Cancel</EuiButtonEmpty>
@@ -1984,5 +2053,84 @@ function UserFormModal({ mode, user, onClose, onSaved }) {
         </EuiButton>
       </EuiModalFooter>
     </EuiModal>
+  );
+}
+
+function AccessControlTab({ groupAllow, setGroupAllow, groupBlock, setGroupBlock, channelAllow, setChannelAllow, channelBlock, setChannelBlock, loading }) {
+  if (loading) return <p>Loading access rules...</p>;
+
+  return (
+    <Fragment>
+      <EuiCallOut title="Per-user access control" color="primary" size="s" iconType="lock">
+        <p>Configure regex patterns to restrict this user's accessible content. Empty lists = full access (no restriction). Allow lists restrict to matches only; block lists remove matches. Global filters still apply first.</p>
+      </EuiCallOut>
+      <EuiSpacer size="m" />
+      <PatternListEditor label="Group allow list" helpText="Only show groups matching these patterns (empty = all groups)" patterns={groupAllow} onChange={setGroupAllow} />
+      <EuiSpacer size="m" />
+      <PatternListEditor label="Group block list" helpText="Hide groups matching these patterns" patterns={groupBlock} onChange={setGroupBlock} />
+      <EuiSpacer size="m" />
+      <PatternListEditor label="Channel allow list" helpText="Only show channels matching these patterns (empty = all channels)" patterns={channelAllow} onChange={setChannelAllow} />
+      <EuiSpacer size="m" />
+      <PatternListEditor label="Channel block list" helpText="Hide channels matching these patterns" patterns={channelBlock} onChange={setChannelBlock} />
+    </Fragment>
+  );
+}
+
+function PatternListEditor({ label, helpText, patterns, onChange }) {
+  const [input, setInput] = useState('');
+  const [validationError, setValidationError] = useState(null);
+
+  const addPattern = () => {
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    try {
+      new RegExp(trimmed);
+    } catch (e) {
+      setValidationError(`Invalid regex: ${e.message}`);
+      return;
+    }
+    setValidationError(null);
+    if (!patterns.includes(trimmed)) {
+      onChange([...patterns, trimmed]);
+    }
+    setInput('');
+  };
+
+  const removePattern = (idx) => {
+    onChange(patterns.filter((_, i) => i !== idx));
+  };
+
+  return (
+    <EuiFormRow label={label} helpText={helpText} isInvalid={!!validationError} error={validationError}>
+      <div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: patterns.length ? 8 : 0 }}>
+          {patterns.map((p, i) => (
+            <EuiBadge
+              key={i}
+              color="hollow"
+              iconType="cross"
+              iconSide="right"
+              iconOnClick={() => removePattern(i)}
+              iconOnClickAriaLabel={`Remove ${p}`}
+            >
+              {p}
+            </EuiBadge>
+          ))}
+        </div>
+        <EuiFlexGroup gutterSize="s" responsive={false}>
+          <EuiFlexItem>
+            <EuiFieldText
+              value={input}
+              onChange={(e) => { setInput(e.target.value); setValidationError(null); }}
+              placeholder="e.g. ^Sports$ or (?i)news"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPattern(); } }}
+            />
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <EuiButton size="s" onClick={addPattern} disabled={!input.trim()}>Add</EuiButton>
+          </EuiFlexItem>
+        </EuiFlexGroup>
+      </div>
+    </EuiFormRow>
   );
 }
