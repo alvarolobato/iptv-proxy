@@ -5,7 +5,7 @@ Newest entries first.
 
 ---
 
-## ADR-013: TV play view with mpegts.js player and VLC deep links
+## ADR-014: TV play view with mpegts.js player and VLC deep links
 
 **Date:** 2026-09-13
 **Status:** Implemented
