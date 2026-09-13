@@ -23,7 +23,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -33,8 +32,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/alvarolobato/iptv-proxy/pkg/stats"
+	"github.com/gin-gonic/gin"
 )
 
 // countingReader wraps an io.Reader and counts bytes read.
@@ -262,7 +261,7 @@ func (c *Config) authenticate(ctx *gin.Context) {
 }
 
 func (c *Config) appAuthenticate(ctx *gin.Context) {
-	contents, err := ioutil.ReadAll(ctx.Request.Body)
+	contents, err := io.ReadAll(ctx.Request.Body)
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
@@ -288,7 +287,7 @@ func (c *Config) appAuthenticate(ctx *gin.Context) {
 	}
 	ctx.Set("authenticated_user", matchedUser)
 
-	ctx.Request.Body = ioutil.NopCloser(bytes.NewReader(contents))
+	ctx.Request.Body = io.NopCloser(bytes.NewReader(contents))
 }
 
 // authenticatePath validates user/password from URL path params.

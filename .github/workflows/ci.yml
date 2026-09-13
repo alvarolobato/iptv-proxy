@@ -9,16 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    # Pin Go to the toolchain golangci-lint is built with; the runner's newer default Go
-    # makes the linter's typecheck fail on standard library files.
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24'
+        go-version: '1.26'
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v2
+      uses: golangci/golangci-lint-action@v9
       with:
-        version: v1.64.8
+        version: v2.13.2
     - name: Run tests and attempt building
       run: |
         export PATH=$(go env GOPATH)/bin:$PATH
