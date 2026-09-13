@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -360,12 +361,13 @@ func (c *Config) xtreamPlayDispatch(ctx *gin.Context) {
 	// Split the escaped path: Gin decodes ctx.Param("path"), so a credential containing an
 	// encoded '/' (%2F) would otherwise be split into extra segments.
 	raw := ctx.Request.URL.EscapedPath()
-	i := strings.Index(raw, "/play/")
-	if i < 0 {
+	// Strip the exact route prefix; searching for "/play/" would match inside a custom endpoint.
+	prefix := path.Join("/", strings.Trim(c.CustomEndpoint, "/"), "play") + "/"
+	if !strings.HasPrefix(raw, prefix) {
 		ctx.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
-	rawParts := strings.SplitN(raw[i+len("/play/"):], "/", 3)
+	rawParts := strings.SplitN(strings.TrimPrefix(raw, prefix), "/", 3)
 	parts := make([]string, len(rawParts))
 	for j, rp := range rawParts {
 		seg, err := url.PathUnescape(rp)
@@ -595,11 +597,13 @@ func (c *Config) hlsXtreamStream(ctx *gin.Context, oriURL *url.URL) {
 				ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 				return
 			}
-			body := string(b)
-			// Providers may write credentials raw or path-escaped; replace both so they never reach the client.
-			proxyCreds := "/" + url.PathEscape(c.pathAuthUser()) + "/" + url.PathEscape(c.pathAuthPassword()) + "/"
-			body = strings.ReplaceAll(body, "/"+c.XtreamUser.PathEscape()+"/"+c.XtreamPassword.PathEscape()+"/", proxyCreds)
-			body = strings.ReplaceAll(body, "/"+c.XtreamUser.String()+"/"+c.XtreamPassword.String()+"/", proxyCreds)
+			// Providers may write credentials raw or escaped; swap them per playlist line so they never reach the client.
+			lines := strings.Split(string(b), "\n")
+			for i, line := range lines {
+				lines[i] = replaceCredentialSegments(line, c.XtreamUser.String(), c.XtreamPassword.String(),
+					url.PathEscape(c.pathAuthUser()), url.PathEscape(c.pathAuthPassword()))
+			}
+			body := strings.Join(lines, "\n")
 
 			mergeHttpHeader(ctx.Writer.Header(), hlsResp.Header)
 

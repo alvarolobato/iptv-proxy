@@ -700,3 +700,115 @@ func TestRoutes_SameHostNonGetPHPKeepsM3URoutes(t *testing.T) {
 		t.Errorf("GET %s status = %d, want 200", streamURL.EscapedPath(), resp.StatusCode)
 	}
 }
+
+// TestXtreamPlay_CustomEndpointContainingPlay verifies the /play dispatcher strips the exact route prefix,
+// so a custom endpoint that itself contains a "play" segment doesn't shift the credential segments.
+func TestXtreamPlay_CustomEndpointContainingPlay(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var upstreamPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPath = r.URL.EscapedPath()
+		w.Write([]byte("ts")) // nolint: errcheck
+	}))
+	defer upstream.Close()
+
+	c := newXtreamM3UConfig(t, upstream.URL, upstream.URL+"/play/xu/xp/123.ts")
+	c.CustomEndpoint = "/tv/play"
+	r := gin.New()
+	configureProxyEngine(r)
+	c.routes(r.Group("/"))
+	proxy := httptest.NewServer(r)
+	defer proxy.Close()
+
+	out := c.channelsProcessed()
+	if len(out) != 1 || !strings.Contains(out[0].StreamURL, "/tv/play/play/u/p/123.ts") {
+		t.Fatalf("channelsProcessed() = %+v, want stream_url under the custom endpoint", out)
+	}
+	streamURL, err := url.Parse(out[0].StreamURL)
+	if err != nil {
+		t.Fatalf("url.Parse(stream_url): %v", err)
+	}
+	resp, err := http.Get(proxy.URL + streamURL.EscapedPath())
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET %s status = %d, want 200", streamURL.EscapedPath(), resp.StatusCode)
+	}
+	if upstreamPath != "/play/xu/xp/123.ts" {
+		t.Errorf("upstream path = %q, want /play/xu/xp/123.ts", upstreamPath)
+	}
+}
+
+// TestReplaceURL_ProviderEscapingDiffers verifies provider credentials are recognised however the provider
+// escaped them, so they are never left in served URLs.
+func TestReplaceURL_ProviderEscapingDiffers(t *testing.T) {
+	tests := []struct{ user, pass, uri, wantPath string }{
+		{"xu", "p@ss", "http://prov:80/live/xu/p%40ss/1.ts", "/live/u/p/1.ts"},
+		{"xu", "xp", "http://prov:80/live/x%75/xp/1.ts", "/live/u/p/1.ts"},
+		{"xu", "p@ss", "http://prov:80/live/xu/p@ss/1.ts", "/live/u/p/1.ts"},
+	}
+	for _, tt := range tests {
+		c := &Config{ProxyConfig: &config.ProxyConfig{
+			HostConfig:     &config.HostConfiguration{Hostname: "localhost", Port: 8080},
+			User:           config.CredentialString("u"),
+			Password:       config.CredentialString("p"),
+			XtreamUser:     config.CredentialString(tt.user),
+			XtreamPassword: config.CredentialString(tt.pass),
+		}}
+		got, err := c.replaceURL(tt.uri, 0, true)
+		if err != nil {
+			t.Fatalf("replaceURL(%q): %v", tt.uri, err)
+		}
+		u, err := url.Parse(got)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", got, err)
+		}
+		if u.EscapedPath() != tt.wantPath {
+			t.Errorf("replaceURL(%q) path = %q, want %q", tt.uri, u.EscapedPath(), tt.wantPath)
+		}
+	}
+}
+
+// TestProxyPasswordWithSlash_ParamRoutes verifies :user/:password routes accept a proxy password containing '/'
+// (sent as %2F) once the engine routes on the escaped path.
+func TestProxyPasswordWithSlash_ParamRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var upstreamPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPath = r.URL.EscapedPath()
+		w.Write([]byte("ts")) // nolint: errcheck
+	}))
+	defer upstream.Close()
+
+	c := newXtreamM3UConfig(t, upstream.URL, upstream.URL+"/play/xu/xp/123.ts")
+	c.Password = config.CredentialString("a/b")
+	c.ProxyConfig.Users = nil
+	c.ProxyConfig.MigrateDefaultUser()
+	r := gin.New()
+	configureProxyEngine(r)
+	c.routes(r.Group("/"))
+	proxy := httptest.NewServer(r)
+	defer proxy.Close()
+
+	tests := []struct{ path, want string }{
+		{"/live/u/a%2Fb/123.ts", "/live/xu/xp/123.ts"},
+		{"/movie/u/a%2Fb/123.mp4", "/movie/xu/xp/123.mp4"},
+		{"/u/a%2Fb/123", "/xu/xp/123"},
+		{"/play/u/a%2Fb/123.ts", "/play/xu/xp/123.ts"},
+	}
+	for _, tt := range tests {
+		upstreamPath = ""
+		resp, err := http.Get(proxy.URL + tt.path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", tt.path, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || upstreamPath != tt.want {
+			t.Errorf("GET %s: status %d, upstream path %q; want 200 and %q", tt.path, resp.StatusCode, upstreamPath, tt.want)
+		}
+	}
+}

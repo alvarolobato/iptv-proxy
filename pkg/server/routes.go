@@ -27,6 +27,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// configureProxyEngine routes on the escaped path, so credentials containing an encoded '/' (%2F)
+// stay in a single :user/:password segment; parameter values are still unescaped.
+func configureProxyEngine(r *gin.Engine) {
+	r.UseRawPath = true
+	r.UnescapePathValues = true
+}
+
 func (c *Config) routes(r *gin.RouterGroup) {
 	r = r.Group(c.CustomEndpoint)
 

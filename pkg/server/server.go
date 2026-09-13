@@ -304,10 +304,18 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 
 // replaceCredentialSegments swaps the first consecutive user/password path segments. Matching whole
 // segments keeps other segments intact, e.g. numeric stream ids that contain numeric credentials.
-func replaceCredentialSegments(p, fromUser, fromPass, toUser, toPass string) string {
+// Segments are compared unescaped against the raw credentials, so any provider escaping (p%40ss, x%75) matches.
+func replaceCredentialSegments(p, rawUser, rawPass, toUser, toPass string) string {
 	segs := strings.Split(p, "/")
+	unescaped := func(s string) string {
+		u, err := url.PathUnescape(s)
+		if err != nil {
+			return s
+		}
+		return u
+	}
 	for i := 0; i+1 < len(segs); i++ {
-		if segs[i] == fromUser && segs[i+1] == fromPass {
+		if unescaped(segs[i]) == rawUser && unescaped(segs[i+1]) == rawPass {
 			segs[i], segs[i+1] = toUser, toPass
 			return strings.Join(segs, "/")
 		}
@@ -335,7 +343,7 @@ func (c *Config) replaceURL(uri string, trackIndex int, xtream bool) (string, er
 	uriPath := oriURL.EscapedPath()
 	if xtream {
 		uriPath = replaceCredentialSegments(uriPath,
-			c.XtreamUser.PathEscape(), c.XtreamPassword.PathEscape(),
+			c.XtreamUser.String(), c.XtreamPassword.String(),
 			url.PathEscape(c.pathAuthUser()), url.PathEscape(c.pathAuthPassword()))
 	} else {
 		uriPath = path.Join("/", c.endpointAntiColision, url.PathEscape(c.pathAuthUser()), url.PathEscape(c.pathAuthPassword()), fmt.Sprintf("%d", trackIndex), path.Base(uriPath))
