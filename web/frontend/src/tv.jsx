@@ -1,0 +1,295 @@
+import {
+  EuiButton,
+  EuiButtonEmpty,
+  EuiButtonGroup,
+  EuiCallOut,
+  EuiEmptyPrompt,
+  EuiFieldSearch,
+  EuiIcon,
+  EuiLoadingSpinner,
+  EuiSelect,
+  EuiText,
+} from '@elastic/eui';
+import { Fragment, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import { PlayerSheet } from './player';
+import { channelCategory } from './streamLinks';
+
+// Rows rendered per "Show more" step: keeps the list fast on phones with ~20k channels.
+const PAGE_STEP = 60;
+const RECENT_KEY = 'iptv-proxy.tv.recent';
+const RECENT_MAX = 12;
+const MODES = [
+  { id: 'live', label: 'Live' },
+  { id: 'vod', label: 'VOD' },
+];
+const VOD_KINDS = [
+  { id: 'all', label: 'All' },
+  { id: 'movies', label: 'Movies' },
+  { id: 'series', label: 'Series' },
+];
+const BORDER = '1px solid #d3dae6';
+
+// Recently played is stored as name + group only (no stream URLs, which embed credentials) and resolved
+// against the current channel list, so it survives restarts that change stream URLs.
+function loadRecent() {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    // Drop malformed entries (edited or corrupted storage) instead of crashing the view.
+    return Array.isArray(list)
+      ? list.filter((k) => k && typeof k === 'object' && typeof k.name === 'string' && (k.group == null || typeof k.group === 'string'))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecent(list) {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  } catch {
+    /* storage unavailable (private mode, blocked) */
+  }
+}
+
+const channelKey = (c) => JSON.stringify([c.group || '', c.name || '']);
+
+function ChannelRow({ channel, onPlay }) {
+  const logo = /^https?:\/\//.test(channel.tvg_logo || '') ? channel.tvg_logo : '';
+  return (
+    <button
+      type="button"
+      onClick={() => onPlay(channel)}
+      aria-label={`Play ${channel.name}`}
+      style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 56, padding: '6px 10px', background: 'none', border: 0, textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit' }}
+    >
+      <span style={{ width: 40, height: 40, flex: '0 0 40px', borderRadius: 6, background: 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+        {logo && <img src={logo} alt="" loading="lazy" style={{ maxWidth: 40, maxHeight: 40, objectFit: 'contain' }} onError={(e) => { e.currentTarget.style.display = 'none'; }} />}
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{channel.name}</span>
+        <span style={{ display: 'block', fontSize: 12, color: '#69707d', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{channel.group || '—'}</span>
+      </span>
+      <EuiIcon type="play" color="primary" size="l" />
+    </button>
+  );
+}
+
+// TvPage is the viewer-facing play view. It shows only the final processed list — what clients get: included
+// channels (after inclusions/exclusions) with their replaced names and groups — and deliberately offers no way to
+// reveal excluded channels. Browsing is Live/VOD, category (group) and search. The Channels tab stays the
+// configuration tool.
+export function TvPage() {
+  const navigate = useNavigate();
+  const [channels, setChannels] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [mode, setMode] = useState('live');
+  const [vodKind, setVodKind] = useState('all');
+  const [group, setGroup] = useState('');
+  const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
+  const [visible, setVisible] = useState(PAGE_STEP);
+  const [playing, setPlaying] = useState(null);
+  const [recentKeys, setRecentKeys] = useState(loadRecent);
+
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = 'TV · IPTV-Proxy';
+    // included=1: the server sends only the final (non-excluded) list, keeping the payload small on phones.
+    fetch('/api/channels?included=1', { cache: 'no-store' })
+      .then((res) => {
+        if (!res.ok) throw new Error(res.statusText);
+        return res.json();
+      })
+      .then((data) => setChannels(Array.isArray(data) ? data : []))
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+    return () => {
+      document.title = previousTitle;
+    };
+  }, []);
+
+  // Final list only: excluded channels never reach the view (and a channel needs a stream URL to play).
+  const playable = useMemo(() => channels.filter((c) => c.excluded !== true && c.stream_url), [channels]);
+
+  const counts = useMemo(() => {
+    const out = { live: 0, movies: 0, series: 0 };
+    playable.forEach((c) => {
+      out[channelCategory(c.type)] += 1;
+    });
+    return { ...out, vod: out.movies + out.series };
+  }, [playable]);
+
+  const inCategory = useMemo(
+    () =>
+      playable.filter((c) => {
+        const kind = channelCategory(c.type);
+        if (mode === 'live') return kind === 'live';
+        return kind !== 'live' && (vodKind === 'all' || kind === vodKind);
+      }),
+    [playable, mode, vodKind]
+  );
+
+  const groups = useMemo(() => {
+    const byGroup = new Map();
+    inCategory.forEach((c) => byGroup.set(c.group || '', (byGroup.get(c.group || '') || 0) + 1));
+    return [...byGroup.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [inCategory]);
+
+  useEffect(() => {
+    if (group && !groups.some(([g]) => g === group)) setGroup('');
+  }, [groups, group]);
+
+  const filtered = useMemo(() => {
+    const s = deferredSearch.trim().toLowerCase();
+    return inCategory.filter(
+      (c) =>
+        (!group || (c.group || '') === group) &&
+        (!s || (c.name || '').toLowerCase().includes(s) || (c.tvg_name || '').toLowerCase().includes(s) || (c.group || '').toLowerCase().includes(s))
+    );
+  }, [inCategory, group, deferredSearch]);
+
+  useEffect(() => setVisible(PAGE_STEP), [mode, vodKind, group, deferredSearch]);
+
+  const recent = useMemo(() => {
+    const byKey = new Map(playable.map((c) => [channelKey(c), c]));
+    return recentKeys.map((k) => byKey.get(channelKey(k))).filter(Boolean);
+  }, [playable, recentKeys]);
+
+  const play = (c) => {
+    setPlaying(c);
+    setRecentKeys((prev) => {
+      const next = [{ name: c.name, group: c.group }, ...prev.filter((k) => channelKey(k) !== channelKey(c))].slice(0, RECENT_MAX);
+      saveRecent(next);
+      return next;
+    });
+  };
+
+  // Distinguish an empty final list (processing rules) from channels without stream URLs (configuration).
+  const hasFinalChannels = channels.some((c) => c.excluded !== true);
+  const emptyMessage = playable.length
+    ? 'Try another search or category.'
+    : hasFinalChannels
+      ? 'The final list has channels, but no stream URLs are available for them in this configuration, so they cannot be played here.'
+      : 'The final channel list is empty. Check the processing rules in Configuration.';
+
+  const withCount = (label, n) => (n ? `${label} (${n.toLocaleString()})` : label);
+  const modeOptions = MODES.map((m) => ({ id: `tv-mode-${m.id}`, label: withCount(m.label, counts[m.id]) }));
+  const vodKindOptions = VOD_KINDS.map((k) => ({ id: `tv-vod-${k.id}`, label: k.id === 'all' ? k.label : withCount(k.label, counts[k.id]) }));
+  // The Movies/Series sub-switch only appears when VOD actually has both kinds.
+  const showVodKinds = mode === 'vod' && counts.movies > 0 && counts.series > 0;
+  const groupOptions = [
+    { value: '', text: 'All categories' },
+    ...groups.map(([g, n]) => ({ value: g, text: `${g || '(no group)'} (${n.toLocaleString()})` })),
+  ];
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#f7f8fc' }}>
+      <header style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff', borderBottom: BORDER }}>
+        <div style={{ maxWidth: 960, margin: '0 auto', padding: '6px 12px 8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 40 }}>
+            <img src="/logo-128.png" alt="" width={28} height={28} style={{ display: 'block' }} />
+            <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, flex: 1 }}>TV</h1>
+            <EuiButtonEmpty size="s" iconType="gear" onClick={() => navigate('/')}>
+              Configuration
+            </EuiButtonEmpty>
+          </div>
+          <EuiFieldSearch
+            placeholder="Search channels"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            isClearable
+            fullWidth
+            compressed
+            aria-label="Search channels"
+          />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+            <EuiButtonGroup
+              legend="Live or VOD"
+              options={modeOptions}
+              idSelected={`tv-mode-${mode}`}
+              onChange={(id) => setMode(id.replace('tv-mode-', ''))}
+              buttonSize="compressed"
+            />
+            {showVodKinds && (
+              <EuiButtonGroup
+                legend="VOD type"
+                options={vodKindOptions}
+                idSelected={`tv-vod-${vodKind}`}
+                onChange={(id) => setVodKind(id.replace('tv-vod-', ''))}
+                buttonSize="compressed"
+              />
+            )}
+            <div style={{ flex: '1 1 160px', minWidth: 0 }}>
+              <EuiSelect options={groupOptions} value={group} onChange={(e) => setGroup(e.target.value)} compressed fullWidth aria-label="Category" />
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main style={{ maxWidth: 960, margin: '0 auto', padding: '8px 12px 24px' }}>
+        {loading && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 32 }}>
+            <EuiLoadingSpinner size="xl" />
+          </div>
+        )}
+        {error && (
+          <EuiCallOut title="Could not load channels" color="danger" iconType="alert">
+            <p>{error}</p>
+          </EuiCallOut>
+        )}
+        {!loading && !error && (
+          <Fragment>
+            {recent.length > 0 && !search && (
+              <section aria-label="Recently played" style={{ marginBottom: 4 }}>
+                <EuiText size="xs" color="subdued">
+                  <strong>Recently played</strong>
+                </EuiText>
+                <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '6px 0 8px' }}>
+                  {recent.map((c) => (
+                    <button
+                      key={channelKey(c)}
+                      type="button"
+                      onClick={() => play(c)}
+                      style={{ flex: '0 0 auto', maxWidth: 220, minHeight: 36, padding: '0 12px', borderRadius: 18, border: BORDER, background: '#fff', font: 'inherit', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+            <EuiText size="xs" color="subdued" data-testid="tv-count">
+              {filtered.length.toLocaleString()} {filtered.length === 1 ? 'channel' : 'channels'}
+            </EuiText>
+            {filtered.length === 0 ? (
+              <EuiEmptyPrompt
+                title={<h2>{playable.length ? 'No channels match' : hasFinalChannels ? 'Streams unavailable' : 'No channels to play'}</h2>}
+                body={<p>{emptyMessage}</p>}
+              />
+            ) : (
+              <ul data-testid="tv-list" style={{ listStyle: 'none', margin: '6px 0 0', padding: 0, background: '#fff', borderRadius: 8, border: BORDER, overflow: 'hidden' }}>
+                {filtered.slice(0, visible).map((c, i) => (
+                  <li key={`${c.stream_url}-${i}`} style={{ borderTop: i ? '1px solid #eef2f7' : 'none' }}>
+                    <ChannelRow channel={c} onPlay={play} />
+                  </li>
+                ))}
+              </ul>
+            )}
+            {visible < filtered.length && (
+              <div style={{ marginTop: 12 }}>
+                <EuiButton fullWidth onClick={() => setVisible((v) => v + PAGE_STEP)}>
+                  Show more ({(filtered.length - visible).toLocaleString()} remaining)
+                </EuiButton>
+              </div>
+            )}
+          </Fragment>
+        )}
+      </main>
+
+      {playing && <PlayerSheet channel={playing} onClose={() => setPlaying(null)} />}
+    </div>
+  );
+}

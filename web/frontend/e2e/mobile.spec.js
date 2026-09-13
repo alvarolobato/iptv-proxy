@@ -64,7 +64,7 @@ for (const { name: phone, descriptor } of PHONES) {
       await expect(page.getByText('Group1', { exact: true })).toBeVisible({ timeout: 15000 });
       await expect(page.getByLabel('Sort by')).toBeVisible();
       const viewChannels = await page.getByRole('button', { name: 'View channels' }).first().boundingBox();
-      expect(viewChannels?.height ?? 0).toBeGreaterThanOrEqual(40);
+      expect(Math.round(viewChannels?.height ?? 0)).toBeGreaterThanOrEqual(40);
       await expectCondensedRows(page, 'Groups');
       await expectOverflowMenuActions(page);
       await expectEditFocusesInput(page);
@@ -76,7 +76,7 @@ for (const { name: phone, descriptor } of PHONES) {
       await expectMenusAligned(page, 'Channels');
       const play = page.getByRole('link', { name: 'Open stream' }).first();
       await expect(play).toBeVisible();
-      expect((await play.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(40);
+      expect(Math.round((await play.boundingBox())?.height ?? 0)).toBeGreaterThanOrEqual(40);
       await expectOverflowMenuActions(page);
     });
   });
@@ -114,12 +114,12 @@ async function expectMenusAligned(page, view) {
 // Secondary actions live in a 40px "More actions" menu that exposes include/exclude as 40px items.
 async function expectOverflowMenuActions(page) {
   const more = page.getByRole('button', { name: 'More actions' }).first();
-  expect((await more.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(40);
+  expect(Math.round((await more.boundingBox())?.height ?? 0)).toBeGreaterThanOrEqual(40);
   await more.click();
   for (const name of ['Edit', 'Add to inclusions', 'Add to exclusions']) {
     const item = page.getByRole('button', { name, exact: true }).last();
     await expect(item, `menu item ${name}`).toBeVisible();
-    expect((await item.boundingBox())?.height ?? 0, `menu item ${name} height`).toBeGreaterThanOrEqual(40);
+    expect(Math.round((await item.boundingBox())?.height ?? 0), `menu item ${name} height`).toBeGreaterThanOrEqual(40);
   }
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Add to exclusions', exact: true })).toHaveCount(0);

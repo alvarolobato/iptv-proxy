@@ -48,6 +48,8 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { SettingsPage } from './settings';
 import { useIsMobile } from './responsive';
+import { PlayerSheet, PlayStreamLink } from './player';
+import { TvPage } from './tv';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -111,6 +113,8 @@ const router = createBrowserRouter([
       { path: '/settings', element: <SettingsPage /> },
     ],
   },
+  // Viewer-facing play view with its own minimal header (no configuration page layout).
+  { path: '/tv', element: <TvPage /> },
 ]);
 
 export default function App() {
@@ -132,7 +136,16 @@ function PageLayout({ children }) {
   const isSettings = location.pathname === '/settings';
 
   const rightSideItems = (
-    <EuiFlexGroup key="header-right" alignItems="center" gutterSize="m" responsive={false}>
+    <EuiFlexGroup key="header-right" alignItems="center" gutterSize={isMobile ? 's' : 'm'} responsive={false}>
+      <EuiFlexItem grow={false}>
+        {isMobile ? (
+          <EuiButtonIcon iconType="play" onClick={() => navigate('/tv')} display="base" size="m" aria-label="TV" title="TV" />
+        ) : (
+          <EuiButton iconType="play" onClick={() => navigate('/tv')} size="s">
+            TV
+          </EuiButton>
+        )}
+      </EuiFlexItem>
       <EuiFlexItem grow={false}>
         {isMobile ? (
           <EuiButtonIcon iconType="gear" onClick={() => navigate('/settings')} display="base" size="m" aria-label="Settings" title="Settings" />
@@ -1121,6 +1134,9 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
   const [typeFilters, setTypeFilters] = useState({});
   const [editingChannelName, setEditingChannelName] = useState(null);
   const [editingChannelValue, setEditingChannelValue] = useState('');
+  // One player sheet for the tab, rendered outside the table: row cells unmount when the layout switches
+  // between mobile cards and desktop columns (e.g. rotating a phone), which would close the player.
+  const [playing, setPlaying] = useState(null);
   const isMobile = useIsMobile();
 
   const fetchChannels = useCallback(() => {
@@ -1257,9 +1273,7 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
               actions={
                 <Fragment>
                   {r.stream_url ? (
-                    <a href={r.stream_url} target="_blank" rel="noopener noreferrer" aria-label={`Open stream for ${displayName}`} title={r.stream_url} style={TOUCH_LINK_STYLE}>
-                      <EuiIcon type="play" size="m" />
-                    </a>
+                    <PlayStreamLink channel={r} onPlay={setPlaying} iconSize="m" style={TOUCH_LINK_STYLE} ariaLabel={`Open stream for ${displayName}`} />
                   ) : (
                     <span aria-hidden="true" style={{ display: 'inline-block', width: 40, height: 40 }} />
                   )}
@@ -1404,27 +1418,21 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
             <EuiToolTip content="Add to exclusions">
               <EuiButtonEmpty iconType="minusInCircleFilled" size="xs" color="danger" onClick={() => onAddToProcessing({ section: 'channel_exclusions', value: channelName })} aria-label="Add to exclusions" isDisabled={addInProgress} />
             </EuiToolTip>
+            {/* Native title attribute shows the URL on hover; the player sheet is rendered once outside the table. */}
             {streamUrl && (
-              <EuiToolTip content={streamUrl}>
-                <a
-                  href={streamUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="Open stream"
-                  data-testid="channel-open-stream"
-                  title={streamUrl}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    padding: '4px 6px',
-                    marginLeft: 2,
-                    color: 'var(--euiColorPrimary)',
-                    borderRadius: 4,
-                  }}
-                >
-                  <EuiIcon type="play" size="s" />
-                </a>
-              </EuiToolTip>
+              <PlayStreamLink
+                channel={row}
+                onPlay={setPlaying}
+                testId="channel-open-stream"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '4px 6px',
+                  marginLeft: 2,
+                  color: 'var(--euiColorPrimary)',
+                  borderRadius: 4,
+                }}
+              />
             )}
           </div>
         );
@@ -1533,6 +1541,7 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
         onChange={onChannelsTableChange}
         rowProps={(item) => ({ className: item.excluded === true ? 'euiTableRow--excluded' : 'euiTableRow--included' })}
       />
+      {playing && <PlayerSheet channel={playing} onClose={() => setPlaying(null)} />}
     </Fragment>
   );
 }

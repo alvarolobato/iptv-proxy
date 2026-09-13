@@ -23,6 +23,7 @@ import { icon as logoElastic } from '@elastic/eui/es/components/icon/assets/logo
 import { icon as logoKibana } from '@elastic/eui/es/components/icon/assets/logo_kibana';
 import { icon as pencil } from '@elastic/eui/es/components/icon/assets/pencil';
 import { icon as play } from '@elastic/eui/es/components/icon/assets/play';
+import { icon as popout } from '@elastic/eui/es/components/icon/assets/popout';
 import { icon as plusInCircle } from '@elastic/eui/es/components/icon/assets/plus_in_circle';
 import { icon as plusInCircleFilled } from '@elastic/eui/es/components/icon/assets/plus_in_circle_filled';
 import { icon as search } from '@elastic/eui/es/components/icon/assets/search';
@@ -62,6 +63,7 @@ appendIconComponentCache({
   logoKibana,
   pencil,
   play,
+  popout,
   plusInCircle,
   plusInCircleFilled,
   refresh,
