@@ -43,6 +43,13 @@ async function openSheet(page, name) {
   return sheet;
 }
 
+// Clicking a deep link would navigate to a custom scheme the test browser can't handle; keep the page
+// while still running the app's click handler.
+async function clickWithoutNavigating(locator) {
+  await locator.evaluate((a) => a.addEventListener('click', (e) => e.preventDefault()));
+  await locator.click();
+}
+
 test.describe('TV view', () => {
   test('lists only included channels with a stream URL', async ({ page, request }) => {
     const { playable, excluded } = await fixtureChannels(request);
@@ -51,6 +58,15 @@ test.describe('TV view', () => {
     await expect(playButton(page, playable.name)).toBeVisible({ timeout: 15000 });
     await expect(playButton(page, excluded.name)).toHaveCount(0);
     await expect(page.getByTestId('tv-count')).toHaveText('1 channel');
+  });
+
+  test('channels API with included=1 returns only the final list', async ({ request }) => {
+    const { playable } = await fixtureChannels(request);
+    const res = await request.get('/api/channels?included=1');
+    expect(res.ok()).toBeTruthy();
+    const channels = await res.json();
+    expect(channels.some((c) => c.excluded === true), 'no excluded rows').toBe(false);
+    expect(channels.some((c) => c.name === playable.name)).toBe(true);
   });
 
   test('search and group filters narrow the list', async ({ page, request }) => {
@@ -80,7 +96,7 @@ test.describe('TV view', () => {
       { name: 'A Series', group: 'Shows', type: 'series', excluded: false, stream_url: stream('series/u/p/6.mkv') },
     ];
     await blockStreams(page);
-    await page.route('**/api/channels', (route) => route.fulfill({ json: channels }));
+    await page.route('**/api/channels*', (route) => route.fulfill({ json: channels }));
     await page.goto('/tv');
 
     // Live by default; excluded channels never appear and there is no included/excluded toggle.
@@ -109,9 +125,32 @@ test.describe('TV view', () => {
     await expect(sheet.getByTestId('player-video')).toHaveCount(0);
   });
 
-  test('player sheet offers the .m3u download on desktop and reports stream failures', async ({ page, request }) => {
+  test('explains missing stream URLs instead of blaming processing rules', async ({ page }) => {
+    await page.route('**/api/channels*', (route) =>
+      route.fulfill({ json: [{ name: 'No URL', group: 'News', type: 'live', excluded: false, stream_url: '' }] })
+    );
+    await page.goto('/tv');
+    await expect(page.getByRole('heading', { name: 'Streams unavailable' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/no stream URLs are available/)).toBeVisible();
+  });
+
+  test('ignores a corrupted recently played list', async ({ page, request }) => {
     const { playable } = await fixtureChannels(request);
+    await page.addInitScript(() => {
+      localStorage.setItem('iptv-proxy.tv.recent', JSON.stringify([null, 42, 'x', { name: 7 }, { group: 'News' }]));
+    });
     await blockStreams(page);
+    await page.goto('/tv');
+    await expect(playButton(page, playable.name)).toBeVisible({ timeout: 15000 });
+  });
+
+  test('stream failure tears the player down; external options stop browser playback', async ({ page, context, request }) => {
+    const { playable } = await fixtureChannels(request);
+    let streamRequests = 0;
+    await context.route('http://localhost:18080/**', (route) => {
+      streamRequests += 1;
+      return route.abort();
+    });
     await page.goto('/tv');
     const sheet = await openSheet(page, playable.name);
 
@@ -119,17 +158,53 @@ test.describe('TV view', () => {
     await expect(sheet.getByTestId('player-link-vlc')).toHaveCount(0);
     await expect(sheet.getByTestId('player-copy-url')).toBeVisible();
 
+    // A blocked stream is reported as a load error (not a stall) and the player is torn down: no src, no retries.
+    const errorCallout = sheet.getByTestId('player-error');
+    await expect(errorCallout).toBeVisible({ timeout: 10000 });
+    await expect(errorCallout).toContainText('Playback failed');
+    await expect(errorCallout).toContainText('could not be loaded');
+    await expect(sheet.getByTestId('player-frame')).toHaveAttribute('data-status', 'error');
+    await expect.poll(() => sheet.getByTestId('player-video').evaluate((v) => v.getAttribute('src'))).toBeNull();
+    const requestsAfterError = streamRequests;
+    await page.waitForTimeout(2000);
+    expect(streamRequests, 'no stream requests after teardown').toBe(requestsAfterError);
+
+    // Downloading the .m3u (for an external player) stops browser playback and offers to resume.
     const [download] = await Promise.all([page.waitForEvent('download'), sheet.getByTestId('player-download-m3u').click()]);
     expect(download.suggestedFilename()).toMatch(/\.m3u$/);
     const content = fs.readFileSync(await download.path(), 'utf8');
     expect(content).toBe(`#EXTM3U\n#EXTINF:-1,${playable.name}\n${playable.stream_url}\n`);
+    await expect(sheet.getByTestId('player-stopped')).toBeVisible();
+    await expect(sheet.getByTestId('player-video')).toHaveCount(0);
+    await sheet.getByTestId('player-resume').click();
+    await expect(sheet.getByTestId('player-video')).toBeAttached();
 
-    // The stream request is blocked, so the player must surface an error (or stall notice) pointing to external players.
-    await expect(sheet.getByTestId('player-error')).toBeVisible({ timeout: 20000 });
-
-    await page.keyboard.press('Escape');
+    // Closing the sheet removes the player. (The Resume button unmounts when clicked, so focus has left the
+    // modal and Escape wouldn't reach it; use the close button.)
+    await sheet.getByRole('button', { name: /close/i }).click();
     await expect(sheet).toHaveCount(0);
+    await expect(page.getByTestId('player-video')).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Recently played' }).getByRole('button', { name: playable.name, exact: true })).toBeVisible();
+  });
+
+  test('blocked autoplay shows a Play button instead of a stall notice', async ({ page }) => {
+    const movieUrl = 'http://localhost:18080/movie/u/p/9.mp4';
+    await page.addInitScript(() => {
+      HTMLMediaElement.prototype.play = function play() {
+        return Promise.reject(new DOMException('Autoplay blocked', 'NotAllowedError'));
+      };
+    });
+    // The progressive stream never answers, so only the autoplay rejection can change the state.
+    await page.route(movieUrl, () => {});
+    await page.route('**/api/channels*', (route) =>
+      route.fulfill({ json: [{ name: 'A Movie', group: 'Films', type: 'movie', excluded: false, stream_url: movieUrl }] })
+    );
+    await page.goto('/tv');
+    await page.getByRole('button', { name: /^VOD/ }).click();
+    const sheet = await openSheet(page, 'A Movie');
+    await expect(sheet.getByTestId('player-frame')).toHaveAttribute('data-status', 'paused');
+    await expect(sheet.getByTestId('player-start')).toBeVisible();
+    await expect(sheet.getByTestId('player-error')).toHaveCount(0);
   });
 
   test('header TV button opens the TV view', async ({ page }) => {
@@ -154,7 +229,7 @@ test.describe('TV view', () => {
 test.describe('TV view on Android (Pixel 7)', () => {
   test.use(pixel7);
 
-  test('fits the screen and offers VLC intent links', async ({ page, request }) => {
+  test('fits the screen, offers VLC intent links, and opening VLC stops browser playback', async ({ page, request }) => {
     const { playable } = await fixtureChannels(request);
     await blockStreams(page);
     await page.goto('/tv');
@@ -165,12 +240,17 @@ test.describe('TV view on Android (Pixel 7)', () => {
     await expectNoHorizontalOverflow(page, 'TV player sheet');
     const u = new URL(playable.stream_url);
     const target = `intent://${u.host}${u.pathname}${u.search}#Intent;scheme=http;type=video/*;`;
-    await expect(sheet.getByTestId('player-link-vlc')).toHaveAttribute(
-      'href',
-      `${target}package=org.videolan.vlc;S.browser_fallback_url=${encodeURIComponent(PLAY_STORE)};end`
-    );
+    const vlcHref = `${target}package=org.videolan.vlc;S.browser_fallback_url=${encodeURIComponent(PLAY_STORE)};end`;
+    const vlc = sheet.getByTestId('player-link-vlc');
+    await expect(vlc).toHaveAttribute('href', vlcHref);
+    await expect(vlc).toHaveAttribute('title', vlcHref);
     await expect(sheet.getByTestId('player-link-other-app')).toHaveAttribute('href', `${target}end`);
     await expect(sheet.getByTestId('player-download-m3u')).toBeVisible();
+
+    await expect(sheet.getByTestId('player-video')).toBeAttached();
+    await clickWithoutNavigating(vlc);
+    await expect(sheet.getByTestId('player-stopped')).toBeVisible();
+    await expect(sheet.getByTestId('player-video')).toHaveCount(0);
   });
 });
 

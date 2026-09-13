@@ -62,7 +62,7 @@ Live channels (MPEG-TS) play directly in the page using [mpegts.js](https://gith
 | Safari on iPhone / iPad | iOS/iPadOS 17.1+ (ManagedMediaSource) |
 | Any | HEVC only where the device has a hardware decoder; AC-3/E-AC-3 and MP2 audio usually not supported |
 
-Video starts muted (browsers only allow muted autoplay); use **Tap to unmute**. Each open player uses one provider connection; it is released when the sheet closes. If a channel fails or doesn't start within 15 seconds, the sheet says so and points to the external options.
+Video starts muted (browsers only allow muted autoplay); use **Tap to unmute**. If the browser blocks autoplay entirely (e.g. iOS Low Power Mode), a **Play** button appears. Each open player uses one provider connection; it is released when the sheet closes, when playback fails, and when you use one of the external options below (the sheet then offers **Resume in browser**), so the external app can get a connection. If a channel fails or doesn't start within 15 seconds, the sheet says so and points to the external options. When the UI is served over HTTPS but stream URLs are plain HTTP, browsers block the stream; the sheet explains this and offers the external options.
 
 ### Watch in another app
 
@@ -82,7 +82,7 @@ The UI is backed by a simple JSON API on the same port:
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/groups` | List unique group titles from the playlist. |
-| GET | `/api/channels` | List channels (name, group, tvg_id, tvg_name, tvg_logo). |
+| GET | `/api/channels` | List channels (name, group, tvg_id, tvg_name, tvg_logo, excluded, stream_url). `?included=1` returns only the final list (non-excluded channels), as used by the TV view. |
 | GET | `/api/replacements` | Current `replacements.json` content. |
 | PUT | `/api/replacements` | Save `replacements.json` (body: JSON with `global-replacements`, `names-replacements`, `groups-replacements` arrays). |
 

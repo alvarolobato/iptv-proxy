@@ -1410,21 +1410,21 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
             <EuiToolTip content="Add to exclusions">
               <EuiButtonEmpty iconType="minusInCircleFilled" size="xs" color="danger" onClick={() => onAddToProcessing({ section: 'channel_exclusions', value: channelName })} aria-label="Add to exclusions" isDisabled={addInProgress} />
             </EuiToolTip>
+            {/* No EuiToolTip wrapper: the player sheet renders inside PlayStreamLink, and React events from the
+                modal would bubble to the tooltip. The native title attribute already shows the URL on hover. */}
             {streamUrl && (
-              <EuiToolTip content={streamUrl}>
-                <PlayStreamLink
-                  channel={row}
-                  testId="channel-open-stream"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    padding: '4px 6px',
-                    marginLeft: 2,
-                    color: 'var(--euiColorPrimary)',
-                    borderRadius: 4,
-                  }}
-                />
-              </EuiToolTip>
+              <PlayStreamLink
+                channel={row}
+                testId="channel-open-stream"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '4px 6px',
+                  marginLeft: 2,
+                  color: 'var(--euiColorPrimary)',
+                  borderRadius: 4,
+                }}
+              />
             )}
           </div>
         );

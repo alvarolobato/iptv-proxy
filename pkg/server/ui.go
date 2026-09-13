@@ -51,6 +51,18 @@ func (c *Config) getReplacements() Replacements {
 	return Replacements{}
 }
 
+// includedChannels returns only the rows in the final list (not excluded), so clients that only play
+// channels don't download excluded ones.
+func includedChannels(rows []channelRowProcessed) []channelRowProcessed {
+	out := make([]channelRowProcessed, 0, len(rows))
+	for _, r := range rows {
+		if !r.Excluded {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // runUIServer starts the configuration UI HTTP server on c.ProxyConfig.UIPort. Call from Serve() in a goroutine.
 func (c *Config) runUIServer() {
 	port := c.ProxyConfig.UIPort
@@ -79,9 +91,13 @@ func (c *Config) runUIServer() {
 		ctx.JSON(http.StatusOK, groups)
 	})
 
-	// API: list channels with replacements applied, excluded/replaced flags (cache 2 min)
+	// API: list channels with replacements applied, excluded/replaced flags (cache 2 min).
+	// ?included=1 returns only the final list (non-excluded rows), e.g. for the TV view.
 	router.GET("/api/channels", func(ctx *gin.Context) {
 		channels := c.channelsProcessed()
+		if ctx.Query("included") == "1" {
+			channels = includedChannels(channels)
+		}
 		ctx.Header("Cache-Control", "private, max-age=120")
 		ctx.JSON(http.StatusOK, channels)
 	})

@@ -49,9 +49,16 @@ export function detectPlatform(userAgent, maxTouchPoints = 0) {
 export function androidIntentUrl(url, pkg) {
   const u = new URL(url);
   const scheme = u.protocol.replace(/:$/, '');
-  let intent = `intent://${u.host}${u.pathname}${u.search}#Intent;scheme=${scheme};type=video/*;`;
+  // Keep user:pass@ when the stream URL carries basic auth (copied from provider URLs by the server).
+  const userinfo = u.username ? `${u.username}${u.password ? `:${u.password}` : ''}@` : '';
+  let intent = `intent://${userinfo}${u.host}${u.pathname}${u.search}#Intent;scheme=${scheme};type=video/*;`;
   if (pkg) intent += `package=${pkg};S.browser_fallback_url=${encodeURIComponent(VLC_PLAY_STORE_URL)};`;
   return `${intent}end`;
+}
+
+// isBlockedMixedContent reports whether the browser will block the stream: an https page can't fetch http media.
+export function isBlockedMixedContent(pageProtocol, url) {
+  return pageProtocol === 'https:' && /^http:/i.test(String(url || ''));
 }
 
 // externalPlayerLinks returns deep links for the platform; the first entry is the primary action.
