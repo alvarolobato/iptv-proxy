@@ -21,7 +21,7 @@ package server
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -31,11 +31,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alvarolobato/iptv-proxy/pkg/stats"
+	xtreamapi "github.com/alvarolobato/iptv-proxy/pkg/xtream-proxy"
 	"github.com/gin-gonic/gin"
 	"github.com/jamesnetherton/m3u"
-	xtreamapi "github.com/alvarolobato/iptv-proxy/pkg/xtream-proxy"
 	uuid "github.com/satori/go.uuid"
-	"github.com/alvarolobato/iptv-proxy/pkg/stats"
 	xtreamcodes "github.com/tellytv/go.xtream-codes"
 )
 
@@ -239,7 +239,7 @@ func (c *Config) xtreamPlayerAPIGET(ctx *gin.Context) {
 }
 
 func (c *Config) xtreamPlayerAPIPOST(ctx *gin.Context) {
-	contents, err := ioutil.ReadAll(ctx.Request.Body)
+	contents, err := io.ReadAll(ctx.Request.Body)
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
@@ -571,7 +571,7 @@ func (c *Config) hlsXtreamStream(ctx *gin.Context, oriURL *url.URL) {
 			}
 			defer hlsResp.Body.Close()
 
-			b, err := ioutil.ReadAll(hlsResp.Body)
+			b, err := io.ReadAll(hlsResp.Body)
 			if err != nil {
 				ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 				return

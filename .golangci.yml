@@ -1,0 +1,14 @@
+# golangci-lint v2 configuration. Keeps the behaviour of the previous v1 defaults:
+# standard linters, v1's default exclusions, and staticcheck without style (ST) / quickfix (QF) checks.
+version: "2"
+linters:
+  default: standard
+  settings:
+    staticcheck:
+      checks: ["all", "-ST*", "-QF*"]
+  exclusions:
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
