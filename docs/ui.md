@@ -44,6 +44,37 @@ You can then edit it via the UI or by hand.
 - **Channels** — Table of all channels: name, group, tvg-id, tvg-name, tvg-logo. Use this to see what names and groups you might want to rewrite.
 - **Replacements** — Edit the three rule sections (global, names, groups). Add or remove regex rules, then click **Save replacements.json**. Changes are written to the file in `--data-folder`; **restart the proxy** for them to take effect on the playlist.
 
+## TV view (play channels)
+
+Open **`/tv`** on the UI port (e.g. `http://localhost:9090/tv`) or use the **TV** button in the header. It is a mobile-first view for watching, separate from the configuration tabs:
+
+- Shows only the **final playlist**: included channels (after inclusions/exclusions) with replaced names and groups — the same list clients get. Excluded channels are never shown and there is no option to reveal them.
+- Browse with **Live / VOD** (VOD can be narrowed to Movies or Series when both exist), a **category** (group) picker and search. Recently played channels are remembered in the browser.
+- Tapping a channel opens the **player sheet**. The play button in the Channels tab opens the same sheet.
+
+### In-browser player
+
+Live channels (MPEG-TS) play directly in the page using [mpegts.js](https://github.com/xqq/mpegts.js). `.mp4` VOD uses the browser's native player; formats browsers can't play (e.g. `.mkv`) show only the external options.
+
+| Browser | In-browser playback |
+|---------|---------------------|
+| Chrome / Edge / Firefox (desktop), Chrome on Android | Yes, for H.264 video with AAC audio |
+| Safari on iPhone / iPad | iOS/iPadOS 17.1+ (ManagedMediaSource) |
+| Any | HEVC only where the device has a hardware decoder; AC-3/E-AC-3 and MP2 audio usually not supported |
+
+Video starts muted (browsers only allow muted autoplay); use **Tap to unmute**. Each open player uses one provider connection; it is released when the sheet closes. If a channel fails or doesn't start within 15 seconds, the sheet says so and points to the external options.
+
+### Watch in another app
+
+| Platform | Options |
+|----------|---------|
+| iPhone / iPad | **Open in VLC** (`vlc-x-callback://` link, alternative `vlc://` link). Requires [VLC for iOS](https://apps.apple.com/app/vlc-media-player/id650377962). |
+| Android | **Open in VLC** (intent link; opens the Play Store if VLC isn't installed) and **Open with another app** (system app chooser). |
+| Desktop | **Download .m3u** — a one-channel playlist that opens in VLC, IINA or mpv (desktop VLC has no link handler). |
+| All | **Download .m3u** and **Copy stream URL** (e.g. VLC → Open Network Stream). |
+
+The stream URL contains the proxy user's credentials, like the playlist URLs in the Watch tab.
+
 ## API (for integrations)
 
 The UI is backed by a simple JSON API on the same port:

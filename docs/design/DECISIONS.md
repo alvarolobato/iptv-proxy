@@ -5,6 +5,28 @@ Newest entries first.
 
 ---
 
+## ADR-013: TV play view with mpegts.js player and VLC deep links
+
+**Date:** 2026-09-13
+**Status:** Implemented
+**PR:** feat/tv-player (stacked on #47)
+
+**Context:** The Channels tab "Open stream" action opened the raw `.ts` in a new tab, which no browser plays. Viewers want to play channels from the browser, including on phones. The Channels tab is a configuration tool (included and excluded channels, include/exclude/rename actions). Provider streams are continuous MPEG-TS over HTTP (no usable live HLS); sampled channels are H.264 + AAC, some are HEVC.
+
+**Decision:**
+- Add a dedicated **`/tv` view** instead of changing the Channels tab defaults: it shows only the final processed list (included channels with replaced names/groups and a `stream_url`, no toggle or filter that reveals excluded ones), a Live/VOD switch (VOD = movies + series), category (group) selection and search, with a minimal mobile-first header. Configuration and viewing needs differ (excluded rows and edit actions are noise when watching), and a separate route is bookmarkable on a phone.
+- Play **in the browser with mpegts.js** (transmuxes MPEG-TS to fMP4 into MSE/ManagedMediaSource) rather than server-side ffmpeg → HLS: no server CPU, no new process lifecycle or image size, ~1–2 s latency. Low-latency live config (worker, no stash buffer, latency chasing, source buffer cleanup).
+- Always offer **external players**: VLC deep links on iOS (`vlc-x-callback://x-callback-url/stream?url=`, `vlc://`) and Android (intent with `package=org.videolan.vlc` + Play Store fallback, and a chooser intent without package), a one-channel `.m3u` download (desktop VLC registers no URL scheme) and copy URL.
+- The Channels tab play action opens the same player sheet (native `<a href>` kept for middle-click).
+
+**Consequences:**
+- New dependency: `mpegts.js` 1.8.2 (single maintainer; open issues on iPhone detection and long-session memory — `autoCleanupSourceBuffer` enabled).
+- iPhone in-browser playback needs iOS 17.1+; HEVC plays only with a hardware decoder; AC-3/E-AC-3/MP2 audio generally doesn't play in Chrome/Firefox — those cases fall back to VLC. Interlaced channels are not deinterlaced.
+- Each in-browser viewer consumes a provider connection; the player is destroyed when the sheet closes.
+- Server-side HLS remux/transcode (ffmpeg, Intel Quick Sync on the N100 host) remains the fallback if real-device testing shows mpegts.js is not good enough on iPhone or for HEVC/AC-3 channels.
+
+---
+
 ## ADR-012: Add copyright headers and NOTICE file for fork
 
 **Date:** 2026-03-22

@@ -40,6 +40,10 @@ pkg/
   xtream-proxy/       # Xtream API client (GetLiveCategories, GetXMLTV, etc.)
 vendor/               # Vendored deps
 web/frontend/         # Configuration UI (React, Vite, EUI); build output → pkg/server/uistatic/
+  src/app.jsx         # Router, configuration page (tabs: Groups, Channels, Processing, Watch, Users)
+  src/tv.jsx          # /tv play view: final processed list only (never excluded), Live/VOD, category, search
+  src/player.jsx      # PlayerSheet (mpegts.js in-browser player + external players), PlayStreamLink
+  src/streamLinks.js  # Pure helpers: streamKind, detectPlatform, VLC deep links, .m3u builder
 docs/
   configuration.md   # All parameters and options
   replacements.md    # Replacements file format
@@ -154,7 +158,9 @@ The Playwright config starts the server via `webServer` (see `web/frontend/scrip
 ### UI (EUI / React)
 
 - **Register every EUI icon** in `web/frontend/src/icons_hack.jsx` via `appendIconComponentCache`. Unregistered icons render as empty. Rebuild the frontend after adding icons.
-- **Use native `<a href>` for stream links**, not `EuiButtonEmpty` with `href` (which causes `about:blank#blocked`). Set `title` to the URL for hover visibility.
+- **Use native `<a href>` for stream links**, not `EuiButtonEmpty` with `href` (which causes `about:blank#blocked`). Set `title` to the URL for hover visibility. Use `PlayStreamLink` (`src/player.jsx`): it keeps the native href but opens the player sheet on a plain click. External player deep links (`vlc-x-callback://`, `vlc://`, `intent://`) must also be plain anchors.
+- **In-browser playback.** Live MPEG-TS plays through mpegts.js on a `<video playsinline muted>` with `disableRemotePlayback = true` (required for ManagedMediaSource on iPhone). Always destroy the player (`pause/unload/detachMediaElement/destroy`) when the sheet closes or the channel changes — each open stream holds a provider connection. Don't add request headers or `rangeLoadZeroStart`: the UI (UI port) fetches streams from the proxy port cross-origin, and the proxy's CORS preflight doesn't allow `Range`.
+- **Playwright and video codecs.** Bundled Chromium has no H.264/AAC; e2e tests block stream URLs (`page.route(...).abort()`) and assert UI behavior only. Verify real playback manually with `chromium.launch({ channel: 'chrome' })`.
 - **Action order in tables:** Put "Open stream" to the right of filter actions so missing stream URLs don’t shift button alignment. On mobile compact rows, "More actions" is always rightmost; rows without a stream render a 40px placeholder in the play slot so the menu stays aligned.
 - **Don't convey status by color alone** on compact rows: pair the stripe with a check/cross icon (screen-reader text stays in `EuiScreenReaderOnly`).
 - **Mobile layouts:** Below EUI `m` (768px) `EuiBasicTable` collapses into cards and repeats every column label. Pass columns through `withMobileSummary(summaryColumn, columns)` (app.jsx) so phones get one compact card cell while desktop columns stay unchanged; use `useIsMobile()` (`src/responsive.js`, same breakpoint) for other compact layouts. Hiding the sortable columns also hides EUI's mobile sort popover — render `MobileSortControl` for sortable lists.

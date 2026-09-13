@@ -12,11 +12,12 @@
     "e2e:ui": "playwright test --ui"
   },
   "dependencies": {
-    "@elastic/eui": "^95.1.0",
     "@elastic/datemath": "^5.0.3",
+    "@elastic/eui": "^95.1.0",
     "@emotion/css": "^11.11.2",
     "@emotion/react": "^11.11.4",
     "moment": "^2.29.3",
+    "mpegts.js": "1.8.2",
     "prop-types": "^15.8.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

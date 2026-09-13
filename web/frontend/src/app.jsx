@@ -48,6 +48,8 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { SettingsPage } from './settings';
 import { useIsMobile } from './responsive';
+import { PlayStreamLink } from './player';
+import { TvPage } from './tv';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -111,6 +113,8 @@ const router = createBrowserRouter([
       { path: '/settings', element: <SettingsPage /> },
     ],
   },
+  // Viewer-facing play view with its own minimal header (no configuration page layout).
+  { path: '/tv', element: <TvPage /> },
 ]);
 
 export default function App() {
@@ -132,7 +136,16 @@ function PageLayout({ children }) {
   const isSettings = location.pathname === '/settings';
 
   const rightSideItems = (
-    <EuiFlexGroup key="header-right" alignItems="center" gutterSize="m" responsive={false}>
+    <EuiFlexGroup key="header-right" alignItems="center" gutterSize={isMobile ? 's' : 'm'} responsive={false}>
+      <EuiFlexItem grow={false}>
+        {isMobile ? (
+          <EuiButtonIcon iconType="play" onClick={() => navigate('/tv')} display="base" size="m" aria-label="TV" title="TV" />
+        ) : (
+          <EuiButton iconType="play" onClick={() => navigate('/tv')} size="s">
+            TV
+          </EuiButton>
+        )}
+      </EuiFlexItem>
       <EuiFlexItem grow={false}>
         {isMobile ? (
           <EuiButtonIcon iconType="gear" onClick={() => navigate('/settings')} display="base" size="m" aria-label="Settings" title="Settings" />
@@ -1253,9 +1266,7 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
               actions={
                 <Fragment>
                   {r.stream_url ? (
-                    <a href={r.stream_url} target="_blank" rel="noopener noreferrer" aria-label="Open stream" title={r.stream_url} style={TOUCH_LINK_STYLE}>
-                      <EuiIcon type="play" size="m" />
-                    </a>
+                    <PlayStreamLink channel={r} iconSize="m" style={TOUCH_LINK_STYLE} />
                   ) : (
                     <span aria-hidden="true" style={{ display: 'inline-block', width: 40, height: 40 }} />
                   )}
@@ -1401,13 +1412,9 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
             </EuiToolTip>
             {streamUrl && (
               <EuiToolTip content={streamUrl}>
-                <a
-                  href={streamUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="Open stream"
-                  data-testid="channel-open-stream"
-                  title={streamUrl}
+                <PlayStreamLink
+                  channel={row}
+                  testId="channel-open-stream"
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -1416,9 +1423,7 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
                     color: 'var(--euiColorPrimary)',
                     borderRadius: 4,
                   }}
-                >
-                  <EuiIcon type="play" size="s" />
-                </a>
+                />
               </EuiToolTip>
             )}
           </div>
