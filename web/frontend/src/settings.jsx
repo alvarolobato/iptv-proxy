@@ -16,6 +16,8 @@ import {
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { useIsMobile } from './responsive';
+
 // Defaults match CLI flags (cmd/root.go). Used to prepopulate when key missing and to omit from JSON when value equals default.
 const SETTINGS_DEFAULTS = {
   m3u_url: '',
@@ -93,6 +95,7 @@ function valueEqualsDefault(key, value, type) {
 }
 
 export function SettingsPage() {
+  const isMobile = useIsMobile();
   const [selectedTabId, setSelectedTabId] = useState('options');
   const [settings, setSettings] = useState(null);
   const [formValues, setFormValues] = useState({});
@@ -218,12 +221,12 @@ export function SettingsPage() {
   })).filter((c) => c.fields.length > 0);
 
   return (
-    <EuiPanel paddingSize="l">
-      <EuiTitle size="m">
+    <EuiPanel paddingSize={isMobile ? 'm' : 'l'}>
+      <EuiTitle size={isMobile ? 's' : 'm'}>
         <h2>Settings (settings.json)</h2>
       </EuiTitle>
-      <EuiSpacer size="m" />
-      <EuiTabs>
+      <EuiSpacer size={isMobile ? 's' : 'm'} />
+      <EuiTabs size={isMobile ? 's' : 'm'}>
         <EuiTab onClick={() => setSelectedTabId('options')} isSelected={selectedTabId === 'options'}>
           Options
         </EuiTab>

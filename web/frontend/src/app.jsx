@@ -43,6 +43,7 @@ import { Link } from 'react-router-dom';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { SettingsPage } from './settings';
+import { useIsMobile } from './responsive';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -62,7 +63,7 @@ function ToastList({ toasts }) {
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
-        maxWidth: 360,
+        maxWidth: 'min(360px, calc(100vw - 32px))',
       }}
     >
       {toasts.map((t) => (
@@ -85,12 +86,15 @@ function ToastList({ toasts }) {
   );
 }
 
-const headerTitle = (
-  <Link to="/" style={{ color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-    <img src="/logo-128.png" alt="" width={64} height={64} style={{ display: 'block' }} />
-    <span>IPTV-Proxy configuration</span>
-  </Link>
-);
+function HeaderTitle({ compact }) {
+  const logoSize = compact ? 32 : 64;
+  return (
+    <Link to="/" style={{ color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <img src="/logo-128.png" alt="" width={logoSize} height={logoSize} style={{ display: 'block' }} />
+      <span style={compact ? { fontSize: 20, lineHeight: 1.2 } : undefined}>IPTV-Proxy configuration</span>
+    </Link>
+  );
+}
 
 const router = createBrowserRouter([
   {
@@ -119,22 +123,33 @@ function Root() {
 function PageLayout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const isMobile = useIsMobile();
   const isSettings = location.pathname === '/settings';
 
   const rightSideItems = (
-    <EuiFlexGroup key="header-right" alignItems="center" gutterSize="m">
+    <EuiFlexGroup key="header-right" alignItems="center" gutterSize="m" responsive={false}>
       <EuiFlexItem grow={false}>
-        <EuiButton iconType="gear" onClick={() => navigate('/settings')} size="s">
-          Settings
-        </EuiButton>
+        {isMobile ? (
+          <EuiButtonIcon iconType="gear" onClick={() => navigate('/settings')} display="base" size="m" aria-label="Settings" title="Settings" />
+        ) : (
+          <EuiButton iconType="gear" onClick={() => navigate('/settings')} size="s">
+            Settings
+          </EuiButton>
+        )}
       </EuiFlexItem>
     </EuiFlexGroup>
   );
 
   return (
-    <EuiPageTemplate panelled={true}>
-      <EuiPageTemplate.Header pageTitle={headerTitle} rightSideItems={[rightSideItems]} />
-      <EuiPageTemplate.Section restrictWidth={1400}>
+    <EuiPageTemplate panelled={!isMobile}>
+      <EuiPageTemplate.Header
+        pageTitle={<HeaderTitle compact={isMobile} />}
+        rightSideItems={[rightSideItems]}
+        responsive={!isMobile}
+        alignItems="center"
+        paddingSize={isMobile ? 's' : 'l'}
+      />
+      <EuiPageTemplate.Section restrictWidth={1400} paddingSize={isMobile ? 's' : 'l'}>
         {isSettings && (
           <EuiButtonEmpty iconType="arrowLeft" onClick={() => navigate('/')} flush="left" style={{ paddingLeft: 0 }}>
             Back
@@ -164,6 +179,7 @@ function MainPage() {
   const [groupsRefreshKey, setGroupsRefreshKey] = useState(0);
   const [channelsRefreshKey, setChannelsRefreshKey] = useState(0);
   const [toasts, setToasts] = useState([]);
+  const isMobile = useIsMobile();
 
   const addToast = useCallback((message, color = 'success') => {
     const id = Date.now();
@@ -271,12 +287,12 @@ function MainPage() {
   };
 
   return (
-    <EuiPanel paddingSize="l">
-      <EuiTitle size="m">
+    <EuiPanel paddingSize={isMobile ? 'm' : 'l'}>
+      <EuiTitle size={isMobile ? 's' : 'm'}>
         <h2>Data &amp; processing</h2>
       </EuiTitle>
-      <EuiSpacer size="m" />
-      <EuiTabs>
+      <EuiSpacer size={isMobile ? 's' : 'm'} />
+      <EuiTabs size={isMobile ? 's' : 'm'}>
         {tabs.map((tab) => (
           <EuiTab key={tab.id} onClick={() => setSelectedTabId(tab.id)} isSelected={selectedTabId === tab.id}>
             {tab.name}
@@ -420,6 +436,114 @@ function CopyableField({ label, value, addToast }) {
   );
 }
 
+// --- Mobile (collapsed table) helpers ---
+
+// Collapsed tables render only `summary` (one full-width compact card cell); every desktop column is
+// hidden there, and `summary` is not rendered on desktop, so the desktop layout stays unchanged.
+function withMobileSummary(summary, columns) {
+  return [
+    { ...summary, mobileOptions: { ...summary.mobileOptions, only: true, header: false, width: '100%' } },
+    ...columns.map((c) => ({ ...c, mobileOptions: { ...c.mobileOptions, show: false } })),
+  ];
+}
+
+// 40px icon button: comfortable touch target for card actions.
+function TouchIconButton({ label, ...rest }) {
+  return <EuiButtonIcon size="m" aria-label={label} title={label} {...rest} />;
+}
+
+// Native link (see AGENTS.md: EuiButtonEmpty with href gets blocked) sized like TouchIconButton.
+const TOUCH_LINK_STYLE = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 40,
+  height: 40,
+  color: 'var(--euiColorPrimary)',
+  borderRadius: 4,
+};
+
+function TouchActions({ children }) {
+  return <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>{children}</span>;
+}
+
+// Secondary line of a mobile card (badges, counts); wraps instead of overflowing.
+function MobileMeta({ children }) {
+  return (
+    <span className="euiTextColor--subdued" style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12 }}>
+      {children}
+    </span>
+  );
+}
+
+// Collapsed tables lose EUI's sort popover (all sortable columns are hidden), so phones get this instead.
+function MobileSortControl({ options, field, direction, onChange }) {
+  return (
+    <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+      <EuiFlexItem style={{ minWidth: 0 }}>
+        <EuiSelect
+          fullWidth
+          prepend="Sort by"
+          aria-label="Sort by"
+          options={options}
+          value={field}
+          onChange={(e) => onChange(e.target.value, direction)}
+        />
+      </EuiFlexItem>
+      <EuiFlexItem grow={false}>
+        <TouchIconButton
+          display="base"
+          iconType={direction === 'asc' ? 'sortUp' : 'sortDown'}
+          label={direction === 'asc' ? 'Ascending (tap for descending)' : 'Descending (tap for ascending)'}
+          onClick={() => onChange(field, direction === 'asc' ? 'desc' : 'asc')}
+        />
+      </EuiFlexItem>
+    </EuiFlexGroup>
+  );
+}
+
+function StatusBadge({ excluded }) {
+  return (
+    <EuiBadge
+      color={excluded ? 'danger' : 'success'}
+      iconType={excluded ? 'crossInCircle' : 'checkInCircleFilled'}
+      title={excluded ? 'Will be excluded from output' : 'Will be included in output'}
+    >
+      {excluded ? 'Excluded' : 'Included'}
+    </EuiBadge>
+  );
+}
+
+// In-place editor with Save/Cancel for names, groups and replacement rules. `touch` uses 40px buttons.
+function InlineEditField({ value, onChange, onSave, onCancel, onEscape, cancelColor, touch }) {
+  const button = (iconType, label, onClick, color) =>
+    touch ? (
+      <TouchIconButton iconType={iconType} label={label} onClick={onClick} color={color} />
+    ) : (
+      <EuiToolTip content={label}>
+        <EuiButtonEmpty size="xs" iconType={iconType} color={color} onClick={onClick} aria-label={label} />
+      </EuiToolTip>
+    );
+  return (
+    <EuiFlexGroup gutterSize="xs" alignItems="center" responsive={false}>
+      <EuiFlexItem grow={true} style={touch ? { minWidth: 0 } : undefined}>
+        <EuiFieldText
+          fullWidth
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onSave();
+            if (e.key === 'Escape') (onEscape ?? onCancel)();
+          }}
+          autoFocus
+        />
+      </EuiFlexItem>
+      <EuiFlexItem grow={false}>{button('check', 'Save', onSave, 'primary')}</EuiFlexItem>
+      <EuiFlexItem grow={false}>{button('cross', 'Cancel', onCancel, cancelColor)}</EuiFlexItem>
+    </EuiFlexGroup>
+  );
+}
+
 function WatchTab({ addToast }) {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -536,7 +660,7 @@ function WatchTab({ addToast }) {
 
       {watch.isM3U && (
         <EuiPanel paddingSize="m" style={{ marginBottom: 16 }}>
-          <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" wrap>
+          <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" responsive={false} wrap>
             <EuiFlexItem grow={false}>
               <EuiTitle size="xs">
                 <h3 style={{ marginTop: 0 }}>M3U playlist</h3>
@@ -567,7 +691,7 @@ function WatchTab({ addToast }) {
 
       {watch.isXtream && (
         <EuiPanel paddingSize="m" style={{ marginBottom: 16 }}>
-          <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" wrap>
+          <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" responsive={false} wrap>
             <EuiFlexItem grow={false}>
               <EuiTitle size="xs">
                 <h3 style={{ marginTop: 0 }}>Xtream Codes</h3>
@@ -611,7 +735,7 @@ function WatchTab({ addToast }) {
       )}
 
       <EuiPanel paddingSize="m">
-        <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" wrap>
+        <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" responsive={false} wrap>
           <EuiFlexItem grow={false}>
             <EuiTitle size="xs">
               <h3 style={{ marginTop: 0 }}>EPG / XMLTV</h3>
@@ -665,6 +789,7 @@ function GroupsTab({ showIncluded, showExcluded, onViewChannels, onAddToProcessi
   const [search, setSearch] = useState('');
   const [editingGroupName, setEditingGroupName] = useState(null);
   const [editingGroupValue, setEditingGroupValue] = useState('');
+  const isMobile = useIsMobile();
 
   const fetchGroups = useCallback(() => {
     setLoading(true);
@@ -741,6 +866,52 @@ function GroupsTab({ showIncluded, showExcluded, onViewChannels, onAddToProcessi
   const getRow = (val, item) => (item && typeof item === 'object' && 'name' in item ? item : val && typeof val === 'object' && 'name' in val ? val : {});
   const getRowIndex = (val, item, idx) => (typeof idx === 'number' ? idx : typeof item === 'number' ? item : 0);
 
+  const saveGroupEdit = () => onSaveGroupReplacement?.(editingGroupName, editingGroupValue)?.then(() => setEditingGroupName(null))?.catch(() => {});
+  const cancelGroupEdit = () => { setEditingGroupName(null); addToast?.('Canceled'); };
+  const startGroupEdit = (name) => { setEditingGroupName(name); setEditingGroupValue(name); };
+
+  // Mobile card: name, status, channel count and touch-sized actions.
+  const mobileColumn = {
+    field: 'name',
+    name: 'Group title',
+    sortable: false,
+    mobileOptions: {
+      render: (row) => {
+        const displayName = row.name ?? '—';
+        const groupName = row.name ?? '';
+        const isEditing = editingGroupName === displayName;
+        return (
+          <div style={{ width: '100%' }}>
+            {isEditing ? (
+              <InlineEditField value={editingGroupValue} onChange={setEditingGroupValue} onSave={saveGroupEdit} onCancel={cancelGroupEdit} onEscape={() => setEditingGroupName(null)} cancelColor="danger" touch />
+            ) : (
+              <div style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>
+                {displayName}
+                {row.replaced && <EuiBadge color="hollow" title="Value was replaced by a rule" style={{ marginLeft: 6 }}>Replaced</EuiBadge>}
+              </div>
+            )}
+            <EuiFlexGroup gutterSize="xs" alignItems="center" justifyContent="spaceBetween" responsive={false} wrap>
+              <EuiFlexItem grow={false}>
+                <MobileMeta>
+                  <StatusBadge excluded={row.excluded === true} />
+                  <span>{typeof row.channel_count === 'number' ? row.channel_count : 0} channels</span>
+                </MobileMeta>
+              </EuiFlexItem>
+              <EuiFlexItem grow={false}>
+                <TouchActions>
+                  {!isEditing && <TouchIconButton iconType="pencil" label="Edit" onClick={() => startGroupEdit(displayName)} />}
+                  <TouchIconButton iconType="eye" label="View channels" onClick={() => onViewChannels(groupName)} />
+                  <TouchIconButton iconType="plusInCircleFilled" color="success" label="Add to inclusions" onClick={() => onAddToProcessing({ section: 'group_inclusions', value: groupName })} isDisabled={addInProgress} />
+                  <TouchIconButton iconType="minusInCircleFilled" color="danger" label="Add to exclusions" onClick={() => onAddToProcessing({ section: 'group_exclusions', value: groupName })} isDisabled={addInProgress} />
+                </TouchActions>
+              </EuiFlexItem>
+            </EuiFlexGroup>
+          </div>
+        );
+      },
+    },
+  };
+
   const columns = [
     {
       name: '#',
@@ -766,30 +937,7 @@ function GroupsTab({ showIncluded, showExcluded, onViewChannels, onAddToProcessi
           <EuiFlexGroup gutterSize="xs" alignItems="center" wrap>
             <EuiFlexItem grow={true}>
               {isEditing ? (
-                <EuiFlexGroup gutterSize="xs" alignItems="center">
-                  <EuiFlexItem grow={true}>
-                    <EuiFieldText
-                      fullWidth
-                      value={editingGroupValue}
-                      onChange={(e) => setEditingGroupValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') onSaveGroupReplacement?.(editingGroupName, editingGroupValue)?.then(() => setEditingGroupName(null))?.catch(() => {});
-                        if (e.key === 'Escape') setEditingGroupName(null);
-                      }}
-                      autoFocus
-                    />
-                  </EuiFlexItem>
-                  <EuiFlexItem grow={false}>
-                    <EuiToolTip content="Save">
-                      <EuiButtonEmpty size="xs" iconType="check" color="primary" onClick={() => { onSaveGroupReplacement?.(editingGroupName, editingGroupValue)?.then(() => setEditingGroupName(null))?.catch(() => {}); }} aria-label="Save" />
-                    </EuiToolTip>
-                  </EuiFlexItem>
-                  <EuiFlexItem grow={false}>
-                    <EuiToolTip content="Cancel">
-                      <EuiButtonEmpty size="xs" iconType="cross" color="danger" onClick={() => { setEditingGroupName(null); addToast?.('Canceled'); }} aria-label="Cancel" />
-                    </EuiToolTip>
-                  </EuiFlexItem>
-                </EuiFlexGroup>
+                <InlineEditField value={editingGroupValue} onChange={setEditingGroupValue} onSave={saveGroupEdit} onCancel={cancelGroupEdit} onEscape={() => setEditingGroupName(null)} cancelColor="danger" />
               ) : (
                 <span>{displayName}</span>
               )}
@@ -882,9 +1030,21 @@ function GroupsTab({ showIncluded, showExcluded, onViewChannels, onAddToProcessi
         isClearable
       />
       <EuiSpacer size="m" />
+      {isMobile && (
+        <MobileSortControl
+          options={[
+            { value: 'name', text: 'Group title' },
+            { value: 'excluded', text: 'Status' },
+            { value: 'channel_count', text: 'Channels' },
+          ]}
+          field={sortField}
+          direction={sortDirection}
+          onChange={(f, d) => { setSortField(f); setSortDirection(d); }}
+        />
+      )}
       <EuiBasicTable
         items={paginated}
-        columns={columns}
+        columns={withMobileSummary(mobileColumn, columns)}
         loading={loading}
         noItemsMessage="No groups (no M3U loaded or playlist empty)."
         pagination={pagination}
@@ -909,6 +1069,7 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
   const [typeFilters, setTypeFilters] = useState({});
   const [editingChannelName, setEditingChannelName] = useState(null);
   const [editingChannelValue, setEditingChannelValue] = useState('');
+  const isMobile = useIsMobile();
 
   const fetchChannels = useCallback(() => {
     setLoading(true);
@@ -1014,6 +1175,75 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
 
   const getChannelRow = (val, item) => (item && typeof item === 'object' && 'name' in item ? item : val && typeof val === 'object' && 'name' in val ? val : {});
 
+  const saveChannelEdit = () => onSaveChannelReplacement?.(editingChannelName, editingChannelValue)?.then(() => setEditingChannelName(null))?.catch(() => {});
+  const cancelChannelEdit = () => { setEditingChannelName(null); addToast?.('Canceled'); };
+  const startChannelEdit = (name) => { setEditingChannelName(name); setEditingChannelValue(name); };
+
+  // Mobile card: logo, name, group, status/type badges and touch-sized actions (empty tvg-id and labels omitted).
+  const mobileColumn = {
+    field: 'name',
+    name: 'Name',
+    sortable: false,
+    mobileOptions: {
+      render: (r) => {
+        const displayName = r.name ?? '—';
+        const channelName = r.name ?? '';
+        const isEditing = editingChannelName === displayName;
+        const logo = typeof r.tvg_logo === 'string' && /^https?:\/\//.test(r.tvg_logo) ? r.tvg_logo : '';
+        return (
+          <div style={{ width: '100%' }}>
+            <EuiFlexGroup gutterSize="s" alignItems="flexStart" responsive={false}>
+              <EuiFlexItem grow={false}>
+                <div style={{ width: 44, height: 44, borderRadius: 6, background: 'rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  {logo && (
+                    <img src={logo} alt="" style={{ maxWidth: 44, maxHeight: 44, objectFit: 'contain' }} onError={(e) => { e.target.style.display = 'none'; }} />
+                  )}
+                </div>
+              </EuiFlexItem>
+              <EuiFlexItem style={{ minWidth: 0 }}>
+                {isEditing ? (
+                  <InlineEditField value={editingChannelValue} onChange={setEditingChannelValue} onSave={saveChannelEdit} onCancel={cancelChannelEdit} onEscape={() => setEditingChannelName(null)} cancelColor="danger" touch />
+                ) : (
+                  <div style={{ fontWeight: 600, overflowWrap: 'anywhere', lineHeight: 1.3 }}>
+                    {displayName}
+                    {r.name_replaced && <EuiBadge color="hollow" title="Name was replaced" style={{ marginLeft: 6 }}>Replaced</EuiBadge>}
+                  </div>
+                )}
+                {r.tvg_name && r.tvg_name !== displayName && (
+                  <div className="euiTextColor--subdued" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>tvg-name: {r.tvg_name}</div>
+                )}
+                <div className="euiTextColor--subdued" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>
+                  {r.group || '—'}
+                  {r.group_replaced && <EuiBadge color="hollow" title="Group was replaced" style={{ marginLeft: 6 }}>Replaced</EuiBadge>}
+                </div>
+              </EuiFlexItem>
+            </EuiFlexGroup>
+            <EuiFlexGroup gutterSize="xs" alignItems="center" justifyContent="spaceBetween" responsive={false} wrap>
+              <EuiFlexItem grow={false}>
+                <MobileMeta>
+                  <StatusBadge excluded={r.excluded === true} />
+                  <EuiBadge color="hollow">{r.type || 'live'}</EuiBadge>
+                </MobileMeta>
+              </EuiFlexItem>
+              <EuiFlexItem grow={false}>
+                <TouchActions>
+                  {!isEditing && <TouchIconButton iconType="pencil" label="Edit" onClick={() => startChannelEdit(displayName)} />}
+                  <TouchIconButton iconType="plusInCircleFilled" color="success" label="Add to inclusions" onClick={() => onAddToProcessing({ section: 'channel_inclusions', value: channelName })} isDisabled={addInProgress} />
+                  <TouchIconButton iconType="minusInCircleFilled" color="danger" label="Add to exclusions" onClick={() => onAddToProcessing({ section: 'channel_exclusions', value: channelName })} isDisabled={addInProgress} />
+                  {r.stream_url && (
+                    <a href={r.stream_url} target="_blank" rel="noopener noreferrer" aria-label="Open stream" title={r.stream_url} style={TOUCH_LINK_STYLE}>
+                      <EuiIcon type="play" size="m" />
+                    </a>
+                  )}
+                </TouchActions>
+              </EuiFlexItem>
+            </EuiFlexGroup>
+          </div>
+        );
+      },
+    },
+  };
+
   const columns = [
     {
       field: 'tvg_logo',
@@ -1052,30 +1282,7 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
           <EuiFlexGroup gutterSize="xs" alignItems="center" wrap>
             <EuiFlexItem grow={true}>
               {isEditing ? (
-                <EuiFlexGroup gutterSize="xs" alignItems="center">
-                  <EuiFlexItem grow={true}>
-                    <EuiFieldText
-                      fullWidth
-                      value={editingChannelValue}
-                      onChange={(e) => setEditingChannelValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') onSaveChannelReplacement?.(editingChannelName, editingChannelValue)?.then(() => setEditingChannelName(null))?.catch(() => {});
-                        if (e.key === 'Escape') setEditingChannelName(null);
-                      }}
-                      autoFocus
-                    />
-                  </EuiFlexItem>
-                  <EuiFlexItem grow={false}>
-                    <EuiToolTip content="Save">
-                      <EuiButtonEmpty size="xs" iconType="check" color="primary" onClick={() => { onSaveChannelReplacement?.(editingChannelName, editingChannelValue)?.then(() => setEditingChannelName(null))?.catch(() => {}); }} aria-label="Save" />
-                    </EuiToolTip>
-                  </EuiFlexItem>
-                  <EuiFlexItem grow={false}>
-                    <EuiToolTip content="Cancel">
-                      <EuiButtonEmpty size="xs" iconType="cross" color="danger" onClick={() => { setEditingChannelName(null); addToast?.('Canceled'); }} aria-label="Cancel" />
-                    </EuiToolTip>
-                  </EuiFlexItem>
-                </EuiFlexGroup>
+                <InlineEditField value={editingChannelValue} onChange={setEditingChannelValue} onSave={saveChannelEdit} onCancel={cancelChannelEdit} onEscape={() => setEditingChannelName(null)} cancelColor="danger" />
               ) : (
                 <Fragment>
                   {displayName}
@@ -1262,9 +1469,23 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
         isClearable
       />
       <EuiSpacer size="m" />
+      {isMobile && (
+        <MobileSortControl
+          options={[
+            { value: 'name', text: 'Name' },
+            { value: 'group', text: 'Group' },
+            { value: 'excluded', text: 'Status' },
+            { value: 'type', text: 'Type' },
+            { value: 'tvg_id', text: 'tvg-id' },
+          ]}
+          field={sortField}
+          direction={sortDirection}
+          onChange={(f, d) => { setSortField(f); setSortDirection(d); }}
+        />
+      )}
       <EuiBasicTable
         items={paginated}
-        columns={columns}
+        columns={withMobileSummary(mobileColumn, columns)}
         loading={loading}
         noItemsMessage={groupFilter ? `No channels in group "${groupFilter}".` : 'No channels.'}
         pagination={pagination}
@@ -1296,6 +1517,7 @@ function ProcessingTab({ prepopulate, onClearPrepopulate, addToast, onSettingsSa
   const [activePatternSection, setActivePatternSection] = useState('group_inclusions');
   const [replacementEdit, setReplacementEdit] = useState(null);
   const [replacementEditValue, setReplacementEditValue] = useState('');
+  const isMobile = useIsMobile();
 
   const fetchSettings = useCallback(() => {
     setLoading(true);
@@ -1485,7 +1707,22 @@ function ProcessingTab({ prepopulate, onClearPrepopulate, addToast, onSettingsSa
         {(title || description) ? <EuiSpacer size="xs" /> : null}
         <EuiBasicTable
           items={items}
-          columns={[
+          columns={withMobileSummary({
+            field: 'pattern',
+            name: 'Pattern (regex)',
+            mobileOptions: {
+              render: (item) => (
+                <EuiFlexGroup gutterSize="s" alignItems="center" justifyContent="spaceBetween" responsive={false} style={{ width: '100%' }}>
+                  <EuiFlexItem style={{ minWidth: 0 }}>
+                    <code style={{ overflowWrap: 'anywhere' }}>{item.pattern}</code>
+                  </EuiFlexItem>
+                  <EuiFlexItem grow={false}>
+                    <TouchIconButton type="button" color="danger" iconType="trash" label="Remove pattern" data-listkey={listKey} data-idx={item._idx} onClick={onRemovePatternClick} />
+                  </EuiFlexItem>
+                </EuiFlexGroup>
+              ),
+            },
+          }, [
             { field: 'pattern', name: 'Pattern (regex)' },
             {
               name: 'Actions',
@@ -1512,7 +1749,7 @@ function ProcessingTab({ prepopulate, onClearPrepopulate, addToast, onSettingsSa
                 );
               },
             },
-          ]}
+          ])}
           noItemsMessage="No patterns."
         />
         <EuiSpacer size="s" />
@@ -1544,116 +1781,71 @@ function ProcessingTab({ prepopulate, onClearPrepopulate, addToast, onSettingsSa
         const itemsWithIdx = rules.map((r, i) => ({ ...r, _idx: i })).filter((r) => (r.replace ?? '').trim() !== '' || (r.with ?? '').trim() !== '');
         const isEditing = (idx, field) =>
           replacementEdit?.key === key && replacementEdit?.rowIndex === idx && replacementEdit?.field === field;
+        // Cell for one rule field (replace/with): value + pencil, or the inline editor. `touch` = mobile card.
+        const renderRuleCell = (field, editLabel, touch) => (val, row) => {
+          const idx = row != null && typeof row._idx === 'number' ? row._idx : -1;
+          const editing = isEditing(idx, field);
+          return (
+            <EuiFlexGroup gutterSize="xs" alignItems="center" responsive={false} wrap>
+              <EuiFlexItem grow={true} style={touch ? { minWidth: 0 } : undefined}>
+                {editing ? (
+                  <InlineEditField value={replacementEditValue} onChange={setReplacementEditValue} onSave={applyReplacementEdit} onCancel={cancelReplacementEdit} touch={touch} />
+                ) : (
+                  <span style={touch ? { fontFamily: 'monospace', overflowWrap: 'anywhere' } : undefined}>{val ?? ''}</span>
+                )}
+              </EuiFlexItem>
+              {!editing && (
+                <EuiFlexItem grow={false}>
+                  {touch ? (
+                    <TouchIconButton iconType="pencil" label={editLabel} onClick={() => startReplacementEdit(key, idx, field, val)} />
+                  ) : (
+                    <EuiToolTip content="Edit">
+                      <EuiButtonEmpty size="xs" iconType="pencil" onClick={() => startReplacementEdit(key, idx, field, val)} aria-label={editLabel} />
+                    </EuiToolTip>
+                  )}
+                </EuiFlexItem>
+              )}
+            </EuiFlexGroup>
+          );
+        };
+        const onRemoveRuleClick = (e) => {
+          const k = e?.currentTarget?.getAttribute?.('data-repkey');
+          const i = parseInt(e?.currentTarget?.getAttribute?.('data-idx'), 10);
+          if (k != null && !Number.isNaN(i) && i >= 0) removeReplacement(k, i);
+        };
+        const mobileRuleColumn = {
+          field: 'replace',
+          name: 'Rule',
+          mobileOptions: {
+            render: (item) => (
+              <EuiFlexGroup gutterSize="xs" alignItems="flexStart" responsive={false} style={{ width: '100%' }}>
+                <EuiFlexItem style={{ minWidth: 0 }}>
+                  <div className="euiTextColor--subdued" style={{ fontSize: 12 }}>Replace (regex)</div>
+                  {renderRuleCell('replace', 'Edit replace pattern', true)(item.replace, item)}
+                  <div className="euiTextColor--subdued" style={{ fontSize: 12 }}>With</div>
+                  {renderRuleCell('with', 'Edit with value', true)(item.with, item)}
+                </EuiFlexItem>
+                <EuiFlexItem grow={false}>
+                  <TouchIconButton type="button" color="danger" iconType="trash" label="Remove rule" data-repkey={key} data-idx={item._idx} onClick={onRemoveRuleClick} />
+                </EuiFlexItem>
+              </EuiFlexGroup>
+            ),
+          },
+        };
         return (
           <Fragment>
             <EuiBasicTable
               items={itemsWithIdx}
-              columns={[
+              columns={withMobileSummary(mobileRuleColumn, [
                 {
                   field: 'replace',
                   name: 'Replace (regex)',
-                  render: (val, row) => {
-                    const idx = row != null && typeof row._idx === 'number' ? row._idx : -1;
-                    return (
-                    <EuiFlexGroup gutterSize="xs" alignItems="center" wrap>
-                      <EuiFlexItem grow={true}>
-                        {isEditing(idx, 'replace') ? (
-                          <EuiFlexGroup gutterSize="xs" alignItems="center">
-                            <EuiFlexItem grow={true}>
-                              <EuiFieldText
-                                fullWidth
-                                value={replacementEditValue}
-                                onChange={(e) => setReplacementEditValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') applyReplacementEdit();
-                                  if (e.key === 'Escape') cancelReplacementEdit();
-                                }}
-                                autoFocus
-                              />
-                            </EuiFlexItem>
-                            <EuiFlexItem grow={false}>
-                              <EuiToolTip content="Save">
-                                <EuiButtonEmpty size="xs" iconType="check" color="primary" onClick={applyReplacementEdit} aria-label="Save" />
-                              </EuiToolTip>
-                            </EuiFlexItem>
-                            <EuiFlexItem grow={false}>
-                              <EuiToolTip content="Cancel">
-                                <EuiButtonEmpty size="xs" iconType="cross" onClick={cancelReplacementEdit} aria-label="Cancel" />
-                              </EuiToolTip>
-                            </EuiFlexItem>
-                          </EuiFlexGroup>
-                        ) : (
-                          <span>{val ?? ''}</span>
-                        )}
-                      </EuiFlexItem>
-                      {!isEditing(idx, 'replace') && (
-                        <EuiFlexItem grow={false}>
-                          <EuiToolTip content="Edit">
-                            <EuiButtonEmpty
-                              size="xs"
-                              iconType="pencil"
-                              onClick={() => startReplacementEdit(key, idx, 'replace', val)}
-                              aria-label="Edit replace pattern"
-                            />
-                          </EuiToolTip>
-                        </EuiFlexItem>
-                      )}
-                    </EuiFlexGroup>
-                    );
-                  },
+                  render: renderRuleCell('replace', 'Edit replace pattern', false),
                 },
                 {
                   field: 'with',
                   name: 'With',
-                  render: (val, row) => {
-                    const idx = row != null && typeof row._idx === 'number' ? row._idx : -1;
-                    return (
-                    <EuiFlexGroup gutterSize="xs" alignItems="center" wrap>
-                      <EuiFlexItem grow={true}>
-                        {isEditing(idx, 'with') ? (
-                          <EuiFlexGroup gutterSize="xs" alignItems="center">
-                            <EuiFlexItem grow={true}>
-                              <EuiFieldText
-                                fullWidth
-                                value={replacementEditValue}
-                                onChange={(e) => setReplacementEditValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') applyReplacementEdit();
-                                  if (e.key === 'Escape') cancelReplacementEdit();
-                                }}
-                                autoFocus
-                              />
-                            </EuiFlexItem>
-                            <EuiFlexItem grow={false}>
-                              <EuiToolTip content="Save">
-                                <EuiButtonEmpty size="xs" iconType="check" color="primary" onClick={applyReplacementEdit} aria-label="Save" />
-                              </EuiToolTip>
-                            </EuiFlexItem>
-                            <EuiFlexItem grow={false}>
-                              <EuiToolTip content="Cancel">
-                                <EuiButtonEmpty size="xs" iconType="cross" onClick={cancelReplacementEdit} aria-label="Cancel" />
-                              </EuiToolTip>
-                            </EuiFlexItem>
-                          </EuiFlexGroup>
-                        ) : (
-                          <span>{val ?? ''}</span>
-                        )}
-                      </EuiFlexItem>
-                      {!isEditing(idx, 'with') && (
-                        <EuiFlexItem grow={false}>
-                          <EuiToolTip content="Edit">
-                            <EuiButtonEmpty
-                              size="xs"
-                              iconType="pencil"
-                              onClick={() => startReplacementEdit(key, idx, 'with', val)}
-                              aria-label="Edit with value"
-                            />
-                          </EuiToolTip>
-                        </EuiFlexItem>
-                      )}
-                    </EuiFlexGroup>
-                    );
-                  },
+                  render: renderRuleCell('with', 'Edit with value', false),
                 },
                 {
                   name: 'Actions',
@@ -1684,7 +1876,7 @@ function ProcessingTab({ prepopulate, onClearPrepopulate, addToast, onSettingsSa
                     );
                   },
                 },
-              ]}
+              ])}
               noItemsMessage="No rules."
             />
             <EuiSpacer size="s" />
@@ -1717,13 +1909,25 @@ function ProcessingTab({ prepopulate, onClearPrepopulate, addToast, onSettingsSa
       <p className="euiTextColor--subdued" style={{ fontSize: '12px', marginBottom: 12 }}>
         Empty list = no filter (allow all for inclusions, exclude none for exclusions). Use the trash icon to remove a pattern.
       </p>
-      <EuiTabs size="s">
-        {INCLUSIONS_TABS.map((tab) => (
-          <EuiTab key={tab.id} onClick={() => setInclusionsSection(tab.id)} isSelected={inclusionsSection === tab.id}>
-            {tab.label}
-          </EuiTab>
-        ))}
-      </EuiTabs>
+      {isMobile ? (
+        // Four long tab labels don't fit a phone; a select keeps every section reachable.
+        <EuiFormRow label="Section" fullWidth>
+          <EuiSelect
+            fullWidth
+            options={patternSectionOptions}
+            value={inclusionsSection}
+            onChange={(e) => { setInclusionsSection(e.target.value); setActivePatternSection(e.target.value); }}
+          />
+        </EuiFormRow>
+      ) : (
+        <EuiTabs size="s">
+          {INCLUSIONS_TABS.map((tab) => (
+            <EuiTab key={tab.id} onClick={() => setInclusionsSection(tab.id)} isSelected={inclusionsSection === tab.id}>
+              {tab.label}
+            </EuiTab>
+          ))}
+        </EuiTabs>
+      )}
       <EuiSpacer size="m" />
       {INCLUSIONS_TABS.map((tab) => inclusionsSection === tab.id && (
         <Fragment key={tab.id}>
@@ -1769,7 +1973,7 @@ function ProcessingTab({ prepopulate, onClearPrepopulate, addToast, onSettingsSa
     <Fragment>
       <EuiPanel paddingSize="m" color="subdued">
         <EuiTitle size="xs"><h3>Processing order</h3></EuiTitle>
-        <pre style={{ margin: '8px 0', fontFamily: 'monospace', fontSize: '13px' }}>{PROCESSING_DIAGRAM}</pre>
+        <pre style={{ margin: '8px 0', fontFamily: 'monospace', fontSize: '13px', whiteSpace: 'pre-wrap' }}>{PROCESSING_DIAGRAM}</pre>
         <p className="euiTextColor--subdued" style={{ marginTop: 8 }}>
           <strong>1. Inclusions</strong> — Keep only tracks that match at least one pattern in group inclusions (if any) and at least one in channel inclusions (if any). Empty list = keep all.
           <br />
@@ -1787,7 +1991,7 @@ function ProcessingTab({ prepopulate, onClearPrepopulate, addToast, onSettingsSa
       <EuiSpacer size="m" />
 
       <EuiTitle size="s"><h4>Configure processing</h4></EuiTitle>
-      <EuiTabs>
+      <EuiTabs size={isMobile ? 's' : 'm'}>
         <EuiTab onClick={() => setProcessingSubTab('replacements')} isSelected={processingSubTab === 'replacements'}>
           Replacements
         </EuiTab>
@@ -1800,7 +2004,7 @@ function ProcessingTab({ prepopulate, onClearPrepopulate, addToast, onSettingsSa
       {processingSubTab === 'inclusions' && inclusionsContent}
 
       <EuiSpacer size="l" />
-      <EuiButton onClick={saveAll} fill isLoading={saving} isDisabled={loading}>
+      <EuiButton onClick={saveAll} fill isLoading={saving} isDisabled={loading} fullWidth={isMobile}>
         Save all processing settings
       </EuiButton>
     </Fragment>
@@ -1840,6 +2044,32 @@ function UsersTab({ addToast }) {
       .finally(() => setDeleteConfirm(null));
   };
 
+  // Mobile card: username + status, description/created as secondary lines, touch-sized actions.
+  const mobileColumn = {
+    field: 'username',
+    name: 'User',
+    mobileOptions: {
+      render: (item) => (
+        <EuiFlexGroup gutterSize="s" alignItems="center" justifyContent="spaceBetween" responsive={false} wrap style={{ width: '100%' }}>
+          <EuiFlexItem style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>
+              {item.username}
+              <EuiBadge color={item.enabled ? 'success' : 'warning'} style={{ marginLeft: 6 }}>{item.enabled ? 'Enabled' : 'Disabled'}</EuiBadge>
+            </div>
+            {item.description && <div className="euiTextColor--subdued" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>{item.description}</div>}
+            {item.created_at && <div className="euiTextColor--subdued" style={{ fontSize: 12 }}>Created {item.created_at.split('T')[0]}</div>}
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <TouchActions>
+              <EuiButtonEmpty size="m" onClick={() => { setEditUser(item); setModalMode('edit'); }}>Edit</EuiButtonEmpty>
+              <EuiButtonEmpty size="m" color="danger" onClick={() => setDeleteConfirm(item.username)}>Delete</EuiButtonEmpty>
+            </TouchActions>
+          </EuiFlexItem>
+        </EuiFlexGroup>
+      ),
+    },
+  };
+
   const columns = [
     { field: 'username', name: 'Username' },
     { field: 'description', name: 'Description', render: (val) => val || '—' },
@@ -1861,7 +2091,7 @@ function UsersTab({ addToast }) {
 
   return (
     <Fragment>
-      <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
+      <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" responsive={false}>
         <EuiFlexItem grow={false}>
           <EuiTitle size="xs"><h3>Users ({users.length})</h3></EuiTitle>
         </EuiFlexItem>
@@ -1871,7 +2101,7 @@ function UsersTab({ addToast }) {
       </EuiFlexGroup>
       <EuiSpacer size="m" />
       {error && <EuiCallOut title="Error" color="danger"><p>{error}</p></EuiCallOut>}
-      <EuiBasicTable items={users} columns={columns} loading={loading} />
+      <EuiBasicTable items={users} columns={withMobileSummary(mobileColumn, columns)} loading={loading} />
 
       {modalMode && (
         <UserFormModal
