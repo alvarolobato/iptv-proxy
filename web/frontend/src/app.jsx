@@ -68,6 +68,7 @@ function ToastList({ toasts }) {
         flexDirection: 'column',
         gap: 8,
         maxWidth: 'min(360px, calc(100vw - 32px))',
+        overflowWrap: 'anywhere',
       }}
     >
       {toasts.map((t) => (

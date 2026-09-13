@@ -3,9 +3,12 @@ import { test, expect, devices } from '@playwright/test';
 
 // Phone viewport smoke tests: every main view fits the screen width (no horizontal page scroll),
 // all top-level tabs are reachable, and card actions are touch-sized.
-// defaultBrowserType can't be set inside a test file, so drop it from the device descriptor.
-const { defaultBrowserType: _browser, ...pixel7 } = devices['Pixel 7'];
-test.use(pixel7);
+// Run for the widest and narrowest supported phones (Pixel 7: 412px, iPhone 13: 390px).
+// defaultBrowserType can't be set inside a test file, so drop it from the device descriptors.
+const PHONES = ['Pixel 7', 'iPhone 13'].map((name) => {
+  const { defaultBrowserType: _browser, ...descriptor } = devices[name];
+  return { name, descriptor };
+});
 
 async function expectNoHorizontalOverflow(page, view) {
   const { scrollWidth, clientWidth } = await page.evaluate(() => ({
@@ -15,53 +18,66 @@ async function expectNoHorizontalOverflow(page, view) {
   expect(scrollWidth, `${view}: page must not scroll horizontally`).toBeLessThanOrEqual(clientWidth);
 }
 
-test.describe('Mobile layout (Pixel 7)', () => {
-  test('main views fit the viewport and all tabs are visible', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByText('Group1', { exact: true })).toBeVisible({ timeout: 15000 });
-    const width = page.viewportSize()?.width ?? 0;
-    for (const name of ['Groups', 'Channels', 'Processing', 'Watch', 'Users']) {
-      const box = await page.getByRole('tab', { name, exact: true }).boundingBox();
-      expect(box, `tab ${name} rendered`).not.toBeNull();
-      expect((box?.x ?? 0) + (box?.width ?? 0), `tab ${name} within viewport`).toBeLessThanOrEqual(width);
-    }
-    await expectNoHorizontalOverflow(page, 'Groups');
+// Content that proves each tab has rendered its data before checking overflow (no fixed delays).
+const TAB_READY = {
+  Channels: (page) => page.getByText('Test Channel', { exact: true }),
+  Processing: (page) => page.getByRole('heading', { name: 'Processing order' }),
+  Watch: (page) => page.getByText('Show connection details for user:'),
+  // testuser1 is seeded by start-e2e-server.mjs goldenSettings.
+  Users: (page) => page.getByRole('row', { name: /testuser1/ }),
+};
 
-    for (const name of ['Channels', 'Processing', 'Watch', 'Users']) {
-      await page.getByRole('tab', { name, exact: true }).click();
-      await page.waitForTimeout(500);
-      await expectNoHorizontalOverflow(page, name);
-    }
+for (const { name: phone, descriptor } of PHONES) {
+  test.describe(`Mobile layout (${phone})`, () => {
+    test.use(descriptor);
 
-    await page.getByRole('tab', { name: 'Processing', exact: true }).click();
-    await page.getByRole('tab', { name: 'Inclusions & exclusions' }).click();
-    await expect(page.getByLabel('Section', { exact: true })).toBeVisible();
-    await expectNoHorizontalOverflow(page, 'Processing > Inclusions & exclusions');
+    test('main views fit the viewport and all tabs are visible', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.getByText('Group1', { exact: true })).toBeVisible({ timeout: 15000 });
+      const width = page.viewportSize()?.width ?? 0;
+      for (const name of ['Groups', 'Channels', 'Processing', 'Watch', 'Users']) {
+        const box = await page.getByRole('tab', { name, exact: true }).boundingBox();
+        expect(box, `tab ${name} rendered`).not.toBeNull();
+        expect((box?.x ?? 0) + (box?.width ?? 0), `tab ${name} within viewport`).toBeLessThanOrEqual(width);
+      }
+      await expectNoHorizontalOverflow(page, 'Groups');
 
-    await page.goto('/settings');
-    await expect(page.getByRole('heading', { name: /Settings \(settings\.json\)/i })).toBeVisible();
-    await page.waitForTimeout(500);
-    await expectNoHorizontalOverflow(page, 'Settings');
+      for (const [name, ready] of Object.entries(TAB_READY)) {
+        await page.getByRole('tab', { name, exact: true }).click();
+        await expect(ready(page).first(), `${name}: content loaded`).toBeVisible({ timeout: 15000 });
+        await expectNoHorizontalOverflow(page, name);
+      }
+
+      await page.getByRole('tab', { name: 'Processing', exact: true }).click();
+      await page.getByRole('tab', { name: 'Inclusions & exclusions' }).click();
+      await expect(page.getByLabel('Section', { exact: true })).toBeVisible();
+      await expectNoHorizontalOverflow(page, 'Processing > Inclusions & exclusions');
+
+      await page.goto('/settings');
+      await expect(page.getByRole('heading', { name: /Settings \(settings\.json\)/i })).toBeVisible();
+      await page.waitForLoadState('networkidle');
+      await expectNoHorizontalOverflow(page, 'Settings');
+    });
+
+    test('group and channel cards are condensed, touch-sized, with a sort control', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.getByText('Group1', { exact: true })).toBeVisible({ timeout: 15000 });
+      await expect(page.getByLabel('Sort by')).toBeVisible();
+      const viewChannels = await page.getByRole('button', { name: 'View channels' }).first().boundingBox();
+      expect(viewChannels?.height ?? 0).toBeGreaterThanOrEqual(40);
+      await expectCondensedRows(page, 'Groups');
+      await expectOverflowMenuActions(page);
+
+      await page.getByRole('tab', { name: 'Channels', exact: true }).click();
+      await expect(page.getByText('Test Channel', { exact: true })).toBeVisible({ timeout: 15000 });
+      await expectCondensedRows(page, 'Channels');
+      const play = page.getByRole('link', { name: 'Open stream' }).first();
+      await expect(play).toBeVisible();
+      expect((await play.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(40);
+      await expectOverflowMenuActions(page);
+    });
   });
-
-  test('group and channel cards are condensed, touch-sized, with a sort control', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByText('Group1', { exact: true })).toBeVisible({ timeout: 15000 });
-    await expect(page.getByLabel('Sort by')).toBeVisible();
-    const viewChannels = await page.getByRole('button', { name: 'View channels' }).first().boundingBox();
-    expect(viewChannels?.height ?? 0).toBeGreaterThanOrEqual(40);
-    await expectCondensedRows(page, 'Groups');
-    await expectOverflowMenuActions(page);
-
-    await page.getByRole('tab', { name: 'Channels', exact: true }).click();
-    await expect(page.getByText('Test Channel', { exact: true })).toBeVisible({ timeout: 15000 });
-    await expectCondensedRows(page, 'Channels');
-    const play = page.getByRole('link', { name: 'Open stream' }).first();
-    await expect(play).toBeVisible();
-    expect((await play.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(40);
-    await expectOverflowMenuActions(page);
-  });
-});
+}
 
 // Each Groups/Channels card is one condensed row: at most 72px tall including the row chrome, and the row
 // fills the card (actions pinned right) without sticking out of it — EUI's inline cell span would otherwise
