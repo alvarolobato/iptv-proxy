@@ -404,7 +404,7 @@ export function PlayerSheet({ channel, onClose }) {
 
 // PlayStreamLink is a native <a href> to the stream (middle-click and "copy link" still work) that opens
 // the player sheet on a plain click instead of navigating to the raw stream.
-export function PlayStreamLink({ channel, iconSize = 's', style, testId, ...rest }) {
+export function PlayStreamLink({ channel, iconSize = 's', style, testId, ariaLabel = 'Open stream', ...rest }) {
   const [open, setOpen] = useState(false);
   if (!channel?.stream_url) return null;
   const onClick = (e) => {
@@ -414,7 +414,7 @@ export function PlayStreamLink({ channel, iconSize = 's', style, testId, ...rest
   };
   return (
     <Fragment>
-      <a {...rest} href={channel.stream_url} onClick={onClick} aria-label="Open stream" title={channel.stream_url} data-testid={testId} style={style}>
+      <a {...rest} href={channel.stream_url} onClick={onClick} aria-label={ariaLabel} title={channel.stream_url} data-testid={testId} style={style}>
         <EuiIcon type="play" size={iconSize} />
       </a>
       {open && <PlayerSheet channel={channel} onClose={() => setOpen(false)} />}

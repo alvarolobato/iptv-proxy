@@ -164,7 +164,7 @@ function PageLayout({ children }) {
         pageTitle={<HeaderTitle compact={isMobile} />}
         rightSideItems={[rightSideItems]}
         responsive={!isMobile}
-        alignItems="center"
+        alignItems={isMobile ? 'center' : undefined}
         paddingSize={isMobile ? 's' : 'l'}
       />
       <EuiPageTemplate.Section restrictWidth={1400} paddingSize={isMobile ? 's' : 'l'}>
@@ -494,7 +494,6 @@ function CompactRow({ excluded, showLogo, logo, title, titleHint, subtitle, acti
   return (
     <div
       data-testid="compact-row"
-      title={status}
       style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box', minHeight: 44, paddingLeft: 8, borderLeft: `4px solid ${excluded ? '#bd271e' : '#017d73'}` }}
     >
       <EuiIcon
@@ -524,13 +523,17 @@ function CompactRow({ excluded, showLogo, logo, title, titleHint, subtitle, acti
 
 // "More actions" (⋯) popover for secondary card actions; items are 40px tall for touch. Falsy items are skipped.
 // Optional `details` is shown as a non-interactive panel title (e.g. tvg-name, which has no room in the row).
-function RowOverflowMenu({ items, details }) {
+function RowOverflowMenu({ items, details, name }) {
   const [open, setOpen] = useState(false);
+  // Choosing an item may move focus elsewhere (e.g. Edit autofocuses an input); don't let the popover's
+  // focus trap return focus to the ⋯ button in that case. Escape/outside click still return focus.
+  const [returnFocus, setReturnFocus] = useState(true);
   return (
     <EuiPopover
-      button={<TouchIconButton iconType="boxesHorizontal" label="More actions" onClick={() => setOpen((o) => !o)} />}
+      button={<TouchIconButton iconType="boxesHorizontal" label={name ? `More actions for ${name}` : 'More actions'} onClick={() => { setReturnFocus(true); setOpen((o) => !o); }} />}
       isOpen={open}
       closePopover={() => setOpen(false)}
+      focusTrapProps={returnFocus ? undefined : { returnFocus: false }}
       panelPaddingSize="none"
       anchorPosition="downRight"
     >
@@ -541,7 +544,7 @@ function RowOverflowMenu({ items, details }) {
             key={it.label}
             icon={<EuiIcon type={it.icon} color={it.color} />}
             disabled={it.disabled}
-            onClick={() => { setOpen(false); it.onClick(); }}
+            onClick={() => { setReturnFocus(false); setOpen(false); setTimeout(it.onClick, 0); }}
             style={{ minHeight: 40 }}
           >
             {it.label}
@@ -953,8 +956,9 @@ function GroupsTab({ showIncluded, showExcluded, onViewChannels, onAddToProcessi
               subtitle={`${count} channels${row.replaced ? ' · replaced' : ''}`}
               actions={
                 <Fragment>
-                  <TouchIconButton iconType="eye" label="View channels" onClick={() => onViewChannels(groupName)} />
+                  <TouchIconButton iconType="eye" label={`View channels for ${displayName}`} onClick={() => onViewChannels(groupName)} />
                   <RowOverflowMenu
+                    name={displayName}
                     items={[
                       !isEditing && { label: 'Edit', icon: 'pencil', onClick: () => startGroupEdit(displayName) },
                       { label: 'Add to inclusions', icon: 'plusInCircleFilled', color: 'success', disabled: addInProgress, onClick: () => onAddToProcessing({ section: 'group_inclusions', value: groupName }) },
@@ -1100,7 +1104,7 @@ function GroupsTab({ showIncluded, showExcluded, onViewChannels, onAddToProcessi
           ]}
           field={sortField}
           direction={sortDirection}
-          onChange={(f, d) => { setSortField(f); setSortDirection(d); }}
+          onChange={(f, d) => { setSortField(f); setSortDirection(d); setPageIndex(0); }}
         />
       )}
       <EuiBasicTable
@@ -1266,11 +1270,12 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
               actions={
                 <Fragment>
                   {r.stream_url ? (
-                    <PlayStreamLink channel={r} iconSize="m" style={TOUCH_LINK_STYLE} />
+                    <PlayStreamLink channel={r} iconSize="m" style={TOUCH_LINK_STYLE} ariaLabel={`Open stream for ${displayName}`} />
                   ) : (
                     <span aria-hidden="true" style={{ display: 'inline-block', width: 40, height: 40 }} />
                   )}
                   <RowOverflowMenu
+                    name={displayName}
                     details={r.tvg_name && r.tvg_name !== displayName ? `tvg-name: ${r.tvg_name}` : ''}
                     items={[
                       !isEditing && { label: 'Edit', icon: 'pencil', onClick: () => startChannelEdit(displayName) },
@@ -1520,7 +1525,7 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
           ]}
           field={sortField}
           direction={sortDirection}
-          onChange={(f, d) => { setSortField(f); setSortDirection(d); }}
+          onChange={(f, d) => { setSortField(f); setSortDirection(d); setPageIndex(0); }}
         />
       )}
       <EuiBasicTable
