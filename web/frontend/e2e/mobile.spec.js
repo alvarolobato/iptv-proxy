@@ -44,19 +44,54 @@ test.describe('Mobile layout (Pixel 7)', () => {
     await expectNoHorizontalOverflow(page, 'Settings');
   });
 
-  test('group and channel cards have touch-sized actions and a sort control', async ({ page }) => {
+  test('group and channel cards are condensed, touch-sized, with a sort control', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByText('Group1', { exact: true })).toBeVisible({ timeout: 15000 });
     await expect(page.getByLabel('Sort by')).toBeVisible();
     const viewChannels = await page.getByRole('button', { name: 'View channels' }).first().boundingBox();
     expect(viewChannels?.height ?? 0).toBeGreaterThanOrEqual(40);
+    await expectCondensedRows(page, 'Groups');
+    await expectOverflowMenuActions(page);
 
     await page.getByRole('tab', { name: 'Channels', exact: true }).click();
     await expect(page.getByText('Test Channel', { exact: true })).toBeVisible({ timeout: 15000 });
-    const exclude = await page.getByRole('button', { name: 'Add to exclusions' }).first().boundingBox();
-    expect(exclude?.height ?? 0).toBeGreaterThanOrEqual(40);
+    await expectCondensedRows(page, 'Channels');
     const play = page.getByRole('link', { name: 'Open stream' }).first();
     await expect(play).toBeVisible();
     expect((await play.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(40);
+    await expectOverflowMenuActions(page);
   });
 });
+
+// Each Groups/Channels card is one condensed row: at most 72px tall including the row chrome, and the row
+// fills the card (actions pinned right) without sticking out of it — EUI's inline cell span would otherwise
+// shrink-wrap short names and let long names overflow the page.
+async function expectCondensedRows(page, view) {
+  const rows = await page.locator('.euiTableRow:has([data-testid="compact-row"])').evaluateAll((els) =>
+    els.map((r) => {
+      const card = r.getBoundingClientRect();
+      const row = r.querySelector('[data-testid="compact-row"]').getBoundingClientRect();
+      return { height: card.height, gapRight: card.right - row.right };
+    })
+  );
+  expect(rows.length, `${view}: condensed rows rendered`).toBeGreaterThan(0);
+  expect(Math.max(...rows.map((r) => r.height)), `${view}: row height`).toBeLessThanOrEqual(72);
+  for (const r of rows) {
+    expect(r.gapRight, `${view}: row fills the card`).toBeGreaterThanOrEqual(0);
+    expect(r.gapRight, `${view}: row fills the card`).toBeLessThanOrEqual(24);
+  }
+}
+
+// Secondary actions live in a 40px "More actions" menu that exposes include/exclude as 40px items.
+async function expectOverflowMenuActions(page) {
+  const more = page.getByRole('button', { name: 'More actions' }).first();
+  expect((await more.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(40);
+  await more.click();
+  for (const name of ['Edit', 'Add to inclusions', 'Add to exclusions']) {
+    const item = page.getByRole('button', { name, exact: true }).last();
+    await expect(item, `menu item ${name}`).toBeVisible();
+    expect((await item.boundingBox())?.height ?? 0, `menu item ${name} height`).toBeGreaterThanOrEqual(40);
+  }
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Add to exclusions', exact: true })).toHaveCount(0);
+}

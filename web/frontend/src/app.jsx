@@ -6,6 +6,8 @@ import {
   EuiButtonIcon,
   EuiCallOut,
   EuiConfirmModal,
+  EuiContextMenuItem,
+  EuiContextMenuPanel,
   EuiFieldPassword,
   EuiFieldSearch,
   EuiFieldText,
@@ -22,6 +24,8 @@ import {
   EuiModalHeaderTitle,
   EuiPageTemplate,
   EuiPanel,
+  EuiPopover,
+  EuiScreenReaderOnly,
   EuiSelect,
   EuiSpacer,
   EuiSwitch,
@@ -467,12 +471,59 @@ function TouchActions({ children }) {
   return <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>{children}</span>;
 }
 
-// Secondary line of a mobile card (badges, counts); wraps instead of overflowing.
-function MobileMeta({ children }) {
+// Condensed mobile card row: status stripe, optional 32px logo, one-line title and subtitle, trailing actions.
+// Status is conveyed by the stripe and row tint, plus screen-reader text; long text is ellipsized (full text in title).
+function CompactRow({ excluded, showLogo, logo, title, titleHint, subtitle, actions }) {
+  const status = excluded ? 'Excluded' : 'Included';
+  const oneLine = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
   return (
-    <span className="euiTextColor--subdued" style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12 }}>
-      {children}
-    </span>
+    <div
+      data-testid="compact-row"
+      title={status}
+      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box', minHeight: 44, paddingLeft: 8, borderLeft: `4px solid ${excluded ? '#bd271e' : '#017d73'}` }}
+    >
+      {showLogo && (
+        <div style={{ flex: '0 0 32px', width: 32, height: 32, borderRadius: 4, background: 'rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+          {logo && <img src={logo} alt="" style={{ maxWidth: 32, maxHeight: 32, objectFit: 'contain' }} onError={(e) => { e.target.style.display = 'none'; }} />}
+        </div>
+      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div title={titleHint || title} style={{ ...oneLine, fontWeight: 600, fontSize: 14, lineHeight: '18px' }}>{title}</div>
+        <div className="euiTextColor--subdued" title={subtitle} style={{ ...oneLine, fontSize: 12, lineHeight: '16px' }}>
+          <EuiScreenReaderOnly><span>{status}. </span></EuiScreenReaderOnly>
+          {subtitle}
+        </div>
+      </div>
+      <div style={{ flex: '0 0 auto', display: 'inline-flex', alignItems: 'center' }}>{actions}</div>
+    </div>
+  );
+}
+
+// "More actions" (⋯) popover for secondary card actions; items are 40px tall for touch. Falsy items are skipped.
+function RowOverflowMenu({ items }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <EuiPopover
+      button={<TouchIconButton iconType="boxesHorizontal" label="More actions" onClick={() => setOpen((o) => !o)} />}
+      isOpen={open}
+      closePopover={() => setOpen(false)}
+      panelPaddingSize="none"
+      anchorPosition="downRight"
+    >
+      <EuiContextMenuPanel
+        items={items.filter(Boolean).map((it) => (
+          <EuiContextMenuItem
+            key={it.label}
+            icon={<EuiIcon type={it.icon} color={it.color} />}
+            disabled={it.disabled}
+            onClick={() => { setOpen(false); it.onClick(); }}
+            style={{ minHeight: 40 }}
+          >
+            {it.label}
+          </EuiContextMenuItem>
+        ))}
+      />
+    </EuiPopover>
   );
 }
 
@@ -499,18 +550,6 @@ function MobileSortControl({ options, field, direction, onChange }) {
         />
       </EuiFlexItem>
     </EuiFlexGroup>
-  );
-}
-
-function StatusBadge({ excluded }) {
-  return (
-    <EuiBadge
-      color={excluded ? 'danger' : 'success'}
-      iconType={excluded ? 'crossInCircle' : 'checkInCircleFilled'}
-      title={excluded ? 'Will be excluded from output' : 'Will be included in output'}
-    >
-      {excluded ? 'Excluded' : 'Included'}
-    </EuiBadge>
   );
 }
 
@@ -870,7 +909,7 @@ function GroupsTab({ showIncluded, showExcluded, onViewChannels, onAddToProcessi
   const cancelGroupEdit = () => { setEditingGroupName(null); addToast?.('Canceled'); };
   const startGroupEdit = (name) => { setEditingGroupName(name); setEditingGroupValue(name); };
 
-  // Mobile card: name, status, channel count and touch-sized actions.
+  // Mobile card: one condensed row (status stripe, name, channel count); view channels visible, the rest in "More actions".
   const mobileColumn = {
     field: 'name',
     name: 'Group title',
@@ -880,32 +919,29 @@ function GroupsTab({ showIncluded, showExcluded, onViewChannels, onAddToProcessi
         const displayName = row.name ?? '—';
         const groupName = row.name ?? '';
         const isEditing = editingGroupName === displayName;
+        const count = typeof row.channel_count === 'number' ? row.channel_count : 0;
         return (
           <div style={{ width: '100%' }}>
-            {isEditing ? (
-              <InlineEditField value={editingGroupValue} onChange={setEditingGroupValue} onSave={saveGroupEdit} onCancel={cancelGroupEdit} onEscape={() => setEditingGroupName(null)} cancelColor="danger" touch />
-            ) : (
-              <div style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>
-                {displayName}
-                {row.replaced && <EuiBadge color="hollow" title="Value was replaced by a rule" style={{ marginLeft: 6 }}>Replaced</EuiBadge>}
-              </div>
-            )}
-            <EuiFlexGroup gutterSize="xs" alignItems="center" justifyContent="spaceBetween" responsive={false} wrap>
-              <EuiFlexItem grow={false}>
-                <MobileMeta>
-                  <StatusBadge excluded={row.excluded === true} />
-                  <span>{typeof row.channel_count === 'number' ? row.channel_count : 0} channels</span>
-                </MobileMeta>
-              </EuiFlexItem>
-              <EuiFlexItem grow={false}>
-                <TouchActions>
-                  {!isEditing && <TouchIconButton iconType="pencil" label="Edit" onClick={() => startGroupEdit(displayName)} />}
+            <CompactRow
+              excluded={row.excluded === true}
+              title={displayName}
+              subtitle={`${count} channels${row.replaced ? ' · replaced' : ''}`}
+              actions={
+                <Fragment>
                   <TouchIconButton iconType="eye" label="View channels" onClick={() => onViewChannels(groupName)} />
-                  <TouchIconButton iconType="plusInCircleFilled" color="success" label="Add to inclusions" onClick={() => onAddToProcessing({ section: 'group_inclusions', value: groupName })} isDisabled={addInProgress} />
-                  <TouchIconButton iconType="minusInCircleFilled" color="danger" label="Add to exclusions" onClick={() => onAddToProcessing({ section: 'group_exclusions', value: groupName })} isDisabled={addInProgress} />
-                </TouchActions>
-              </EuiFlexItem>
-            </EuiFlexGroup>
+                  <RowOverflowMenu
+                    items={[
+                      !isEditing && { label: 'Edit', icon: 'pencil', onClick: () => startGroupEdit(displayName) },
+                      { label: 'Add to inclusions', icon: 'plusInCircleFilled', color: 'success', disabled: addInProgress, onClick: () => onAddToProcessing({ section: 'group_inclusions', value: groupName }) },
+                      { label: 'Add to exclusions', icon: 'minusInCircleFilled', color: 'danger', disabled: addInProgress, onClick: () => onAddToProcessing({ section: 'group_exclusions', value: groupName }) },
+                    ]}
+                  />
+                </Fragment>
+              }
+            />
+            {isEditing && (
+              <InlineEditField value={editingGroupValue} onChange={setEditingGroupValue} onSave={saveGroupEdit} onCancel={cancelGroupEdit} onEscape={() => setEditingGroupName(null)} cancelColor="danger" touch />
+            )}
           </div>
         );
       },
@@ -1179,7 +1215,8 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
   const cancelChannelEdit = () => { setEditingChannelName(null); addToast?.('Canceled'); };
   const startChannelEdit = (name) => { setEditingChannelName(name); setEditingChannelValue(name); };
 
-  // Mobile card: logo, name, group, status/type badges and touch-sized actions (empty tvg-id and labels omitted).
+  // Mobile card: one condensed row (status stripe, 32px logo, name, group · type); play visible, the rest in "More actions".
+  // tvg-name (when different) is only in the name tooltip; empty tvg-id and labels are omitted.
   const mobileColumn = {
     field: 'name',
     name: 'Name',
@@ -1190,54 +1227,36 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
         const channelName = r.name ?? '';
         const isEditing = editingChannelName === displayName;
         const logo = typeof r.tvg_logo === 'string' && /^https?:\/\//.test(r.tvg_logo) ? r.tvg_logo : '';
+        const subtitle = [r.group || '—', r.type || 'live', (r.name_replaced || r.group_replaced) && 'replaced'].filter(Boolean).join(' · ');
         return (
           <div style={{ width: '100%' }}>
-            <EuiFlexGroup gutterSize="s" alignItems="flexStart" responsive={false}>
-              <EuiFlexItem grow={false}>
-                <div style={{ width: 44, height: 44, borderRadius: 6, background: 'rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                  {logo && (
-                    <img src={logo} alt="" style={{ maxWidth: 44, maxHeight: 44, objectFit: 'contain' }} onError={(e) => { e.target.style.display = 'none'; }} />
-                  )}
-                </div>
-              </EuiFlexItem>
-              <EuiFlexItem style={{ minWidth: 0 }}>
-                {isEditing ? (
-                  <InlineEditField value={editingChannelValue} onChange={setEditingChannelValue} onSave={saveChannelEdit} onCancel={cancelChannelEdit} onEscape={() => setEditingChannelName(null)} cancelColor="danger" touch />
-                ) : (
-                  <div style={{ fontWeight: 600, overflowWrap: 'anywhere', lineHeight: 1.3 }}>
-                    {displayName}
-                    {r.name_replaced && <EuiBadge color="hollow" title="Name was replaced" style={{ marginLeft: 6 }}>Replaced</EuiBadge>}
-                  </div>
-                )}
-                {r.tvg_name && r.tvg_name !== displayName && (
-                  <div className="euiTextColor--subdued" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>tvg-name: {r.tvg_name}</div>
-                )}
-                <div className="euiTextColor--subdued" style={{ fontSize: 12, overflowWrap: 'anywhere' }}>
-                  {r.group || '—'}
-                  {r.group_replaced && <EuiBadge color="hollow" title="Group was replaced" style={{ marginLeft: 6 }}>Replaced</EuiBadge>}
-                </div>
-              </EuiFlexItem>
-            </EuiFlexGroup>
-            <EuiFlexGroup gutterSize="xs" alignItems="center" justifyContent="spaceBetween" responsive={false} wrap>
-              <EuiFlexItem grow={false}>
-                <MobileMeta>
-                  <StatusBadge excluded={r.excluded === true} />
-                  <EuiBadge color="hollow">{r.type || 'live'}</EuiBadge>
-                </MobileMeta>
-              </EuiFlexItem>
-              <EuiFlexItem grow={false}>
-                <TouchActions>
-                  {!isEditing && <TouchIconButton iconType="pencil" label="Edit" onClick={() => startChannelEdit(displayName)} />}
-                  <TouchIconButton iconType="plusInCircleFilled" color="success" label="Add to inclusions" onClick={() => onAddToProcessing({ section: 'channel_inclusions', value: channelName })} isDisabled={addInProgress} />
-                  <TouchIconButton iconType="minusInCircleFilled" color="danger" label="Add to exclusions" onClick={() => onAddToProcessing({ section: 'channel_exclusions', value: channelName })} isDisabled={addInProgress} />
+            <CompactRow
+              excluded={r.excluded === true}
+              showLogo
+              logo={logo}
+              title={displayName}
+              titleHint={r.tvg_name && r.tvg_name !== displayName ? `${displayName}\ntvg-name: ${r.tvg_name}` : displayName}
+              subtitle={subtitle}
+              actions={
+                <Fragment>
                   {r.stream_url && (
                     <a href={r.stream_url} target="_blank" rel="noopener noreferrer" aria-label="Open stream" title={r.stream_url} style={TOUCH_LINK_STYLE}>
                       <EuiIcon type="play" size="m" />
                     </a>
                   )}
-                </TouchActions>
-              </EuiFlexItem>
-            </EuiFlexGroup>
+                  <RowOverflowMenu
+                    items={[
+                      !isEditing && { label: 'Edit', icon: 'pencil', onClick: () => startChannelEdit(displayName) },
+                      { label: 'Add to inclusions', icon: 'plusInCircleFilled', color: 'success', disabled: addInProgress, onClick: () => onAddToProcessing({ section: 'channel_inclusions', value: channelName }) },
+                      { label: 'Add to exclusions', icon: 'minusInCircleFilled', color: 'danger', disabled: addInProgress, onClick: () => onAddToProcessing({ section: 'channel_exclusions', value: channelName }) },
+                    ]}
+                  />
+                </Fragment>
+              }
+            />
+            {isEditing && (
+              <InlineEditField value={editingChannelValue} onChange={setEditingChannelValue} onSave={saveChannelEdit} onCancel={cancelChannelEdit} onEscape={() => setEditingChannelName(null)} cancelColor="danger" touch />
+            )}
           </div>
         );
       },
