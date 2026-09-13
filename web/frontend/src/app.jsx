@@ -472,8 +472,9 @@ function TouchActions({ children }) {
   return <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>{children}</span>;
 }
 
-// Condensed mobile card row: status stripe, optional 32px logo, one-line title and subtitle, trailing actions.
-// Status is conveyed by the stripe and row tint, plus screen-reader text; long text is ellipsized (full text in title).
+// Condensed mobile card row: status stripe + icon, optional 32px logo, one-line title and subtitle, trailing actions.
+// Status is shown by the stripe and a check/cross icon (not color alone), plus screen-reader text; long text is
+// ellipsized (full text in title).
 function CompactRow({ excluded, showLogo, logo, title, titleHint, subtitle, actions }) {
   const status = excluded ? 'Excluded' : 'Included';
   const oneLine = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
@@ -483,6 +484,14 @@ function CompactRow({ excluded, showLogo, logo, title, titleHint, subtitle, acti
       title={status}
       style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box', minHeight: 44, paddingLeft: 8, borderLeft: `4px solid ${excluded ? '#bd271e' : '#017d73'}` }}
     >
+      <EuiIcon
+        data-testid="compact-row-status"
+        type={excluded ? 'crossInCircle' : 'checkInCircleFilled'}
+        color={excluded ? 'danger' : 'success'}
+        size="m"
+        aria-hidden="true"
+        style={{ flex: '0 0 auto' }}
+      />
       {showLogo && (
         <div style={{ flex: '0 0 32px', width: 32, height: 32, borderRadius: 4, background: 'rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
           {logo && <img src={logo} alt="" style={{ maxWidth: 32, maxHeight: 32, objectFit: 'contain' }} onError={(e) => { e.target.style.display = 'none'; }} />}
@@ -501,7 +510,8 @@ function CompactRow({ excluded, showLogo, logo, title, titleHint, subtitle, acti
 }
 
 // "More actions" (⋯) popover for secondary card actions; items are 40px tall for touch. Falsy items are skipped.
-function RowOverflowMenu({ items }) {
+// Optional `details` is shown as a non-interactive panel title (e.g. tvg-name, which has no room in the row).
+function RowOverflowMenu({ items, details }) {
   const [open, setOpen] = useState(false);
   return (
     <EuiPopover
@@ -512,6 +522,7 @@ function RowOverflowMenu({ items }) {
       anchorPosition="downRight"
     >
       <EuiContextMenuPanel
+        title={details || undefined}
         items={items.filter(Boolean).map((it) => (
           <EuiContextMenuItem
             key={it.label}
@@ -1216,8 +1227,9 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
   const cancelChannelEdit = () => { setEditingChannelName(null); addToast?.('Canceled'); };
   const startChannelEdit = (name) => { setEditingChannelName(name); setEditingChannelValue(name); };
 
-  // Mobile card: one condensed row (status stripe, 32px logo, name, group · type); play visible, the rest in "More actions".
-  // tvg-name (when different) is only in the name tooltip; empty tvg-id and labels are omitted.
+  // Mobile card: one condensed row (status stripe + icon, 32px logo, name, group · type); play visible, the rest in "More actions".
+  // tvg-name (when different) is shown at the top of "More actions" (and in the name tooltip); empty tvg-id and labels are omitted.
+  // Rows without a stream keep a 40px placeholder so "More actions" stays aligned across cards.
   const mobileColumn = {
     field: 'name',
     name: 'Name',
@@ -1240,12 +1252,15 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
               subtitle={subtitle}
               actions={
                 <Fragment>
-                  {r.stream_url && (
+                  {r.stream_url ? (
                     <a href={r.stream_url} target="_blank" rel="noopener noreferrer" aria-label="Open stream" title={r.stream_url} style={TOUCH_LINK_STYLE}>
                       <EuiIcon type="play" size="m" />
                     </a>
+                  ) : (
+                    <span aria-hidden="true" style={{ display: 'inline-block', width: 40, height: 40 }} />
                   )}
                   <RowOverflowMenu
+                    details={r.tvg_name && r.tvg_name !== displayName ? `tvg-name: ${r.tvg_name}` : ''}
                     items={[
                       !isEditing && { label: 'Edit', icon: 'pencil', onClick: () => startChannelEdit(displayName) },
                       { label: 'Add to inclusions', icon: 'plusInCircleFilled', color: 'success', disabled: addInProgress, onClick: () => onAddToProcessing({ section: 'channel_inclusions', value: channelName }) },

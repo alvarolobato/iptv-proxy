@@ -71,6 +71,8 @@ for (const { name: phone, descriptor } of PHONES) {
       await page.getByRole('tab', { name: 'Channels', exact: true }).click();
       await expect(page.getByText('Test Channel', { exact: true })).toBeVisible({ timeout: 15000 });
       await expectCondensedRows(page, 'Channels');
+      // Show both included (with stream) and excluded (without stream) channels: the menu must not shift.
+      await expectMenusAligned(page, 'Channels');
       const play = page.getByRole('link', { name: 'Open stream' }).first();
       await expect(play).toBeVisible();
       expect((await play.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(40);
@@ -96,6 +98,16 @@ async function expectCondensedRows(page, view) {
     expect(r.gapRight, `${view}: row fills the card`).toBeGreaterThanOrEqual(0);
     expect(r.gapRight, `${view}: row fills the card`).toBeLessThanOrEqual(24);
   }
+}
+
+// Every visible row has a status icon (not color alone) and the "More actions" button at the same x position.
+async function expectMenusAligned(page, view) {
+  const rows = page.locator('[data-testid="compact-row"]');
+  const count = await rows.count();
+  expect(count, `${view}: rows`).toBeGreaterThan(0);
+  expect(await page.locator('[data-testid="compact-row-status"]').count(), `${view}: status icon per row`).toBe(count);
+  const xs = await page.getByRole('button', { name: 'More actions' }).evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().right)));
+  expect(new Set(xs).size, `${view}: More actions aligned (${xs.join(',')})`).toBe(1);
 }
 
 // Secondary actions live in a 40px "More actions" menu that exposes include/exclude as 40px items.

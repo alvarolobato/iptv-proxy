@@ -155,7 +155,8 @@ The Playwright config starts the server via `webServer` (see `web/frontend/scrip
 
 - **Register every EUI icon** in `web/frontend/src/icons_hack.jsx` via `appendIconComponentCache`. Unregistered icons render as empty. Rebuild the frontend after adding icons.
 - **Use native `<a href>` for stream links**, not `EuiButtonEmpty` with `href` (which causes `about:blank#blocked`). Set `title` to the URL for hover visibility.
-- **Action order in tables:** Put "Open stream" to the right of filter actions so missing stream URLs don’t shift button alignment.
+- **Action order in tables:** Put "Open stream" to the right of filter actions so missing stream URLs don’t shift button alignment. On mobile compact rows, "More actions" is always rightmost; rows without a stream render a 40px placeholder in the play slot so the menu stays aligned.
+- **Don't convey status by color alone** on compact rows: pair the stripe with a check/cross icon (screen-reader text stays in `EuiScreenReaderOnly`).
 - **Mobile layouts:** Below EUI `m` (768px) `EuiBasicTable` collapses into cards and repeats every column label. Pass columns through `withMobileSummary(summaryColumn, columns)` (app.jsx) so phones get one compact card cell while desktop columns stay unchanged; use `useIsMobile()` (`src/responsive.js`, same breakpoint) for other compact layouts. Hiding the sortable columns also hides EUI's mobile sort popover — render `MobileSortControl` for sortable lists.
 - **Phone-friendly content:** Card actions use 40px touch targets (`TouchIconButton`, `EuiButtonEmpty size="m"`); long unbreakable text (URLs, regex, `<pre>`) needs `overflow-wrap: anywhere` / `white-space: pre-wrap`; tab strips must fit ~360px (use `EuiTabs size="s"` or a select). `e2e/mobile.spec.js` asserts no horizontal overflow on a Pixel 7 viewport.
 
