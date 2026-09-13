@@ -372,7 +372,8 @@ func (c *Config) xtreamPlayDispatch(ctx *gin.Context) {
 			return
 		}
 		ctx.Set("authenticated_user", matched)
-		rpURL, err := url.Parse(fmt.Sprintf("%s/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
+		// Keep the /play prefix: providers reject /:user/:password/:id.ts without it.
+		rpURL, err := url.Parse(fmt.Sprintf("%s/play/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
 		if err != nil {
 			ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 			return

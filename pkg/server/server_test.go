@@ -23,6 +23,8 @@
 package server
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -283,4 +285,96 @@ func TestXtreamRouteRegistration(t *testing.T) {
 	r := gin.New()
 	group := r.Group("")
 	c.xtreamRoutes(group)
+}
+
+// newXtreamM3UConfig builds a Config whose M3U source is the Xtream account's own get.php
+// (the mode used when only Xtream credentials are configured).
+func newXtreamM3UConfig(t *testing.T, upstreamBase string, trackURI string) *Config {
+	t.Helper()
+	remote, err := url.Parse(upstreamBase + "/get.php?username=xu&password=xp&type=m3u_plus&output=mpegts")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	track := m3u.Track{Name: "Live Channel", URI: trackURI, Tags: []m3u.Tag{{Name: "group-title", Value: "Group1"}}}
+	pc := &config.ProxyConfig{
+		HostConfig:     &config.HostConfiguration{Hostname: "localhost", Port: 8080},
+		AdvertisedPort: 8080,
+		User:           config.CredentialString("u"),
+		Password:       config.CredentialString("p"),
+		RemoteURL:      remote,
+		M3UFileName:    "iptv.m3u",
+		XtreamBaseURL:  upstreamBase,
+		XtreamUser:     config.CredentialString("xu"),
+		XtreamPassword: config.CredentialString("xp"),
+	}
+	pc.MigrateDefaultUser()
+	return &Config{
+		ProxyConfig:          pc,
+		playlist:             &m3u.Playlist{Tracks: []m3u.Track{track}},
+		fullPlaylistTracks:   []m3u.Track{track},
+		trackIndexInPlaylist: map[string]int{trackURI: 0},
+		endpointAntiColision: "x",
+		statsCollector:       &stats.NoopCollector{},
+	}
+}
+
+// TestChannelsProcessed_StreamURL_XtreamM3U verifies that in Xtream M3U mode the UI stream_url uses the
+// Xtream form (per-track anti-collision routes are not registered in that mode, so they would 404).
+func TestChannelsProcessed_StreamURL_XtreamM3U(t *testing.T) {
+	c := newXtreamM3UConfig(t, "http://upstream:80", "http://upstream:80/play/xu/xp/123.ts")
+	out := c.channelsProcessed()
+	if len(out) != 1 {
+		t.Fatalf("channelsProcessed() len = %d, want 1", len(out))
+	}
+	if want := "http://localhost:8080/play/u/p/123.ts"; out[0].StreamURL != want {
+		t.Errorf("stream_url = %q, want %q", out[0].StreamURL, want)
+	}
+}
+
+// TestXtreamM3U_StreamURLReachesUpstream requests the UI stream_url through the real router and verifies
+// it is routed (not a Gin 404) and proxied to the provider's /play path with the provider credentials.
+func TestXtreamM3U_StreamURLReachesUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var upstreamPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPath = r.URL.Path
+		if r.URL.Path != "/play/xu/xp/123.ts" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "video/mp2t")
+		w.Write([]byte("ts")) // nolint: errcheck
+	}))
+	defer upstream.Close()
+
+	c := newXtreamM3UConfig(t, upstream.URL, upstream.URL+"/play/xu/xp/123.ts")
+	r := gin.New()
+	c.routes(r.Group(""))
+
+	out := c.channelsProcessed()
+	if len(out) != 1 || out[0].StreamURL == "" {
+		t.Fatalf("channelsProcessed() = %+v, want one row with stream_url", out)
+	}
+	streamURL, err := url.Parse(out[0].StreamURL)
+	if err != nil {
+		t.Fatalf("url.Parse(stream_url): %v", err)
+	}
+
+	// Real server: gin's ctx.Stream needs a CloseNotifier, which httptest.ResponseRecorder lacks.
+	proxy := httptest.NewServer(r)
+	defer proxy.Close()
+
+	resp, err := http.Get(proxy.URL + streamURL.Path)
+	if err != nil {
+		t.Fatalf("GET %s: %v", streamURL.Path, err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET %s status = %d, want 200 (upstream path %q)", streamURL.Path, resp.StatusCode, upstreamPath)
+	}
+	if upstreamPath != "/play/xu/xp/123.ts" {
+		t.Errorf("upstream path = %q, want /play/xu/xp/123.ts", upstreamPath)
+	}
 }

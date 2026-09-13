@@ -32,10 +32,7 @@ func (c *Config) routes(r *gin.RouterGroup) {
 	//Xtream service endopoints
 	if c.ProxyConfig.XtreamBaseURL != "" {
 		c.xtreamRoutes(r)
-		if strings.Contains(c.XtreamBaseURL, c.RemoteURL.Host) &&
-			c.XtreamUser.String() == c.RemoteURL.Query().Get("username") &&
-			c.XtreamPassword.String() == c.RemoteURL.Query().Get("password") {
-
+		if c.servesXtreamM3U() {
 			r.GET("/"+c.M3UFileName, c.authenticate, c.xtreamGetAuto)
 			// XXX Private need: for external Android app
 			r.POST("/"+c.M3UFileName, c.authenticate, c.xtreamGetAuto)
@@ -45,6 +42,18 @@ func (c *Config) routes(r *gin.RouterGroup) {
 	}
 
 	c.m3uRoutes(r)
+}
+
+// servesXtreamM3U reports whether the M3U source is the Xtream account's own get.php.
+// In that mode per-track M3U routes are not registered, so stream URLs must use the
+// Xtream form (credentials swapped in the upstream path) instead of the anti-collision form.
+func (c *Config) servesXtreamM3U() bool {
+	if c.ProxyConfig.XtreamBaseURL == "" || c.RemoteURL == nil {
+		return false
+	}
+	return strings.Contains(c.XtreamBaseURL, c.RemoteURL.Host) &&
+		c.XtreamUser.String() == c.RemoteURL.Query().Get("username") &&
+		c.XtreamPassword.String() == c.RemoteURL.Query().Get("password")
 }
 
 func (c *Config) xtreamRoutes(r *gin.RouterGroup) {

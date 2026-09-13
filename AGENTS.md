@@ -148,6 +148,8 @@ The Playwright config starts the server via `webServer` (see `web/frontend/scrip
 
 - **`replaceURL()` must always produce a valid URL.** When `HostConfig.Hostname` is empty, fall back to `"localhost"`; when `AdvertisedPort` is 0, use `HostConfig.Port`.
 - **Xtream M3U also gets stream URLs.** In `channelsProcessed()` (ui.go), set `stream_url` whenever `uriToIndex` is available, not only when `!xtream`.
+- **Match the stream URL form to the registered routes.** When `servesXtreamM3U()` is true (M3U source is the Xtream account's own `get.php`, e.g. only Xtream credentials configured), `routes()` skips `m3uRoutes`, so anti-collision `/<id>/:user/:password/<index>/<file>` URLs 404. Build URLs with `replaceURL(..., xtream=true)` in that mode. Test new URL forms by requesting them through the real router (see `TestXtreamM3U_StreamURLReachesUpstream`).
+- **Keep the upstream path prefix when proxying Xtream streams.** `/play/:user/:password/:id` must forward to `{base}/play/{xu}/{xp}/{id}`; providers return 404 for `{base}/{xu}/{xp}/{id}.ts`.
 
 ### UI (EUI / React)
 
