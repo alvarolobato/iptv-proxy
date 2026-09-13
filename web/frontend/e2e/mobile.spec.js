@@ -67,6 +67,7 @@ for (const { name: phone, descriptor } of PHONES) {
       expect(viewChannels?.height ?? 0).toBeGreaterThanOrEqual(40);
       await expectCondensedRows(page, 'Groups');
       await expectOverflowMenuActions(page);
+      await expectEditFocusesInput(page);
 
       await page.getByRole('tab', { name: 'Channels', exact: true }).click();
       await expect(page.getByText('Test Channel', { exact: true })).toBeVisible({ timeout: 15000 });
@@ -122,4 +123,18 @@ async function expectOverflowMenuActions(page) {
   }
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Add to exclusions', exact: true })).toHaveCount(0);
+}
+
+// Choosing Edit from the ⋯ menu must leave focus in the inline input (the popover must not return focus to the
+// menu button), so the phone keyboard opens and Enter/Escape work.
+async function expectEditFocusesInput(page) {
+  await page.getByRole('button', { name: 'More actions' }).first().click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).last().click();
+  const input = page.locator('.euiTableRow input[type="text"]').first();
+  await expect(input).toBeVisible();
+  // Wait past the popover's 250ms closing transition, when a returned focus would land on the button.
+  await page.waitForTimeout(400);
+  await expect(input).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.euiTableRow input[type="text"]')).toHaveCount(0);
 }
