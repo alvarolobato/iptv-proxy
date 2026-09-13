@@ -23,6 +23,7 @@
 package server
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -376,5 +377,84 @@ func TestXtreamM3U_StreamURLReachesUpstream(t *testing.T) {
 	}
 	if upstreamPath != "/play/xu/xp/123.ts" {
 		t.Errorf("upstream path = %q, want /play/xu/xp/123.ts", upstreamPath)
+	}
+}
+
+// TestServesXtreamM3U verifies the Xtream M3U mode predicate only matches the Xtream account's own get.php.
+func TestServesXtreamM3U(t *testing.T) {
+	mk := func(base, remote, xu, xp string) *Config {
+		var ru *url.URL
+		if remote != "" {
+			ru, _ = url.Parse(remote)
+		}
+		return &Config{ProxyConfig: &config.ProxyConfig{
+			RemoteURL:      ru,
+			XtreamBaseURL:  base,
+			XtreamUser:     config.CredentialString(xu),
+			XtreamPassword: config.CredentialString(xp),
+		}}
+	}
+	tests := []struct {
+		name string
+		c    *Config
+		want bool
+	}{
+		{"own get.php", mk("http://prov:8080", "http://prov:8080/get.php?username=xu&password=xp&type=m3u_plus", "xu", "xp"), true},
+		{"default port on one side", mk("http://prov:80", "http://prov/get.php?username=xu&password=xp", "xu", "xp"), true},
+		{"host only contained in base", mk("http://myprov.example:80", "http://prov.example/get.php?username=xu&password=xp", "xu", "xp"), false},
+		{"different port", mk("http://prov:8080", "http://prov:9090/get.php?username=xu&password=xp", "xu", "xp"), false},
+		{"not get.php", mk("http://prov:8080", "http://prov:8080/playlist.m3u?username=xu&password=xp", "xu", "xp"), false},
+		{"empty credentials", mk("http://prov:8080", "http://prov:8080/get.php", "", ""), false},
+		{"credential mismatch", mk("http://prov:8080", "http://prov:8080/get.php?username=xu&password=other", "xu", "xp"), false},
+		{"no remote url", mk("http://prov:8080", "", "xu", "xp"), false},
+		{"no xtream base", mk("", "http://prov:8080/get.php?username=xu&password=xp", "xu", "xp"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.c.servesXtreamM3U(); got != tt.want {
+				t.Errorf("servesXtreamM3U() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestXtreamPlay_M3U8UsesHLSHandler verifies /play/:user/:password/:id.m3u8 (catch-all route, no :id param)
+// is handled by hlsXtreamStream, which rewrites provider credentials inside the playlist.
+func TestXtreamPlay_M3U8UsesHLSHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var upstreamURL string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/play/xu/xp/123.m3u8":
+			http.Redirect(w, r, upstreamURL+"/hls/tok/123.m3u8", http.StatusFound)
+		case "/hls/tok/123.m3u8":
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			w.Write([]byte("#EXTM3U\n/hlsr/tok/xu/xp/123/1/seg.ts\n")) // nolint: errcheck
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+	upstreamURL = upstream.URL
+
+	c := newXtreamM3UConfig(t, upstream.URL, upstream.URL+"/play/xu/xp/123.m3u8")
+	r := gin.New()
+	c.routes(r.Group(""))
+	proxy := httptest.NewServer(r)
+	defer proxy.Close()
+
+	resp, err := http.Get(proxy.URL + "/play/u/p/123.m3u8")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %q)", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "/hlsr/tok/u/p/123/1/seg.ts") {
+		t.Errorf("playlist not rewritten by the HLS handler: %q", body)
 	}
 }

@@ -372,6 +372,8 @@ func (c *Config) xtreamPlayDispatch(ctx *gin.Context) {
 			return
 		}
 		ctx.Set("authenticated_user", matched)
+		// The catch-all route has no :id param; set it so .m3u8 requests reach hlsXtreamStream.
+		ctx.Params = append(ctx.Params, gin.Param{Key: "id", Value: id})
 		// Keep the /play prefix: providers reject /:user/:password/:id.ts without it.
 		rpURL, err := url.Parse(fmt.Sprintf("%s/play/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
 		if err != nil {

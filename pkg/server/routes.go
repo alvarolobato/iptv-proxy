@@ -20,6 +20,7 @@ package server
 
 import (
 	"fmt"
+	"net/url"
 	"path"
 	"strings"
 
@@ -48,12 +49,32 @@ func (c *Config) routes(r *gin.RouterGroup) {
 // In that mode per-track M3U routes are not registered, so stream URLs must use the
 // Xtream form (credentials swapped in the upstream path) instead of the anti-collision form.
 func (c *Config) servesXtreamM3U() bool {
-	if c.ProxyConfig.XtreamBaseURL == "" || c.RemoteURL == nil {
+	if c.ProxyConfig.XtreamBaseURL == "" || c.RemoteURL == nil ||
+		c.XtreamUser.String() == "" || c.XtreamPassword.String() == "" {
 		return false
 	}
-	return strings.Contains(c.XtreamBaseURL, c.RemoteURL.Host) &&
+	base, err := url.Parse(c.XtreamBaseURL)
+	if err != nil || !sameHost(base, c.RemoteURL) {
+		return false
+	}
+	return path.Base(c.RemoteURL.Path) == "get.php" &&
 		c.XtreamUser.String() == c.RemoteURL.Query().Get("username") &&
 		c.XtreamPassword.String() == c.RemoteURL.Query().Get("password")
+}
+
+// sameHost compares hostnames and ports, treating a missing port as the scheme default.
+func sameHost(a, b *url.URL) bool {
+	return a.Hostname() != "" && strings.EqualFold(a.Hostname(), b.Hostname()) && urlPort(a) == urlPort(b)
+}
+
+func urlPort(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	if u.Scheme == "https" {
+		return "443"
+	}
+	return "80"
 }
 
 func (c *Config) xtreamRoutes(r *gin.RouterGroup) {
