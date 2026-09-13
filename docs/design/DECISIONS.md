@@ -5,6 +5,23 @@ Newest entries first.
 
 ---
 
+## ADR-013: Xtream-form stream URLs when the M3U comes from the Xtream get.php
+
+**Date:** 2026-09-13
+**Status:** Implemented
+**PR:** [#46](https://github.com/alvarolobato/iptv-proxy/pull/46)
+
+**Context:** With only Xtream credentials configured, the M3U source is the account's own `get.php`. In that mode `routes()` registers the Xtream routes and the auto-M3U route but not the per-track anti-collision routes (`/<id>/:user/:password/<index>/<file>`). The UI still generated anti-collision stream URLs, so every "Open stream" link returned 404. Separately, `/play/:user/:password/:id` forwarded upstream without the `/play` prefix, which providers reject for `.ts` ids.
+
+**Decision:** A single predicate, `servesXtreamM3U()` (same host/port as the Xtream base URL, `get.php` path, matching non-empty credentials), selects the mode for both route registration and UI stream URLs. In that mode stream URLs use the Xtream form (provider credentials swapped for proxy credentials in the provider path, e.g. `/play/<user>/<pass>/<id>.ts`). The `/play` dispatcher forwards to `{base}/play/{xu}/{xp}/{id}` and sets the `id` route param so `.m3u8` requests use the HLS handler.
+
+**Consequences:**
+- UI links always match a registered route; covered by a router-level test against an `httptest` upstream.
+- M3U clients using `/play` URLs work again.
+- Anti-collision URLs remain for plain M3U sources.
+
+---
+
 ## ADR-012: Add copyright headers and NOTICE file for fork
 
 **Date:** 2026-03-22
