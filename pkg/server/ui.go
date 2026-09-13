@@ -298,6 +298,8 @@ func (c *Config) channelsProcessed() []channelRowProcessed {
 		}
 	}
 
+	xtreamURLs := c.servesXtreamM3U()
+
 	out := make([]channelRowProcessed, 0, len(tracksForAPI))
 	for _, track := range tracksForAPI {
 		rawGroup := getGroupTitle(track)
@@ -314,7 +316,7 @@ func (c *Config) channelsProcessed() []channelRowProcessed {
 		streamURL := ""
 		if uriToIndex != nil {
 			if idx, ok := uriToIndex[track.URI]; ok {
-				if u, err := c.replaceURL(track.URI, idx, false); err == nil {
+				if u, err := c.replaceURL(track.URI, idx, xtreamURLs); err == nil {
 					streamURL = u
 				}
 			}

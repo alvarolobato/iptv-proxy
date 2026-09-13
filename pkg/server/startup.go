@@ -67,6 +67,7 @@ func (c *Config) ServeWithContext(ctx *StartupContext) error {
 	}
 
 	router := gin.Default()
+	configureProxyEngine(router)
 	router.Use(cors.Default())
 	group := router.Group("/")
 	c.routes(group)

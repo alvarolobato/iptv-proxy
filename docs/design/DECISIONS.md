@@ -9,7 +9,7 @@ Newest entries first.
 
 **Date:** 2026-09-13
 **Status:** Implemented
-**PR:** feat/tv-player (stacked on #47)
+**PR:** [#49](https://github.com/alvarolobato/iptv-proxy/pull/49)
 
 **Context:** The Channels tab "Open stream" action opened the raw `.ts` in a new tab, which no browser plays. Viewers want to play channels from the browser, including on phones. The Channels tab is a configuration tool (included and excluded channels, include/exclude/rename actions). Provider streams are continuous MPEG-TS over HTTP (no usable live HLS); sampled channels are H.264 + AAC, some are HEVC.
 
@@ -22,8 +22,25 @@ Newest entries first.
 **Consequences:**
 - New dependency: `mpegts.js` 1.8.2 (single maintainer; open issues on iPhone detection and long-session memory — `autoCleanupSourceBuffer` enabled).
 - iPhone in-browser playback needs iOS 17.1+; HEVC plays only with a hardware decoder; AC-3/E-AC-3/MP2 audio generally doesn't play in Chrome/Firefox — those cases fall back to VLC. Interlaced channels are not deinterlaced.
-- Each in-browser viewer consumes a provider connection; the player is destroyed when the sheet closes.
+- Each in-browser viewer consumes a provider connection; the player is destroyed when the sheet closes, when playback fails, and when an external player option is used (so the external app gets a connection). The TV view loads only the final list via `GET /api/channels?included=1`.
 - Server-side HLS remux/transcode (ffmpeg, Intel Quick Sync on the N100 host) remains the fallback if real-device testing shows mpegts.js is not good enough on iPhone or for HEVC/AC-3 channels.
+
+---
+
+## ADR-013: Xtream-form stream URLs when the M3U comes from the Xtream get.php
+
+**Date:** 2026-09-13
+**Status:** Implemented
+**PR:** [#46](https://github.com/alvarolobato/iptv-proxy/pull/46)
+
+**Context:** With only Xtream credentials configured, the M3U source is the account's own `get.php`. In that mode `routes()` registers the Xtream routes and the auto-M3U route but not the per-track anti-collision routes (`/<id>/:user/:password/<index>/<file>`). The UI still generated anti-collision stream URLs, so every "Open stream" link returned 404. Separately, `/play/:user/:password/:id` forwarded upstream without the `/play` prefix, which providers reject for `.ts` ids.
+
+**Decision:** A single predicate, `servesXtreamM3U()` (same host/port as the Xtream base URL, `get.php` path, matching non-empty credentials), selects the mode for both route registration and UI stream URLs. In that mode stream URLs use the Xtream form (provider credentials swapped for proxy credentials in the provider path, e.g. `/play/<user>/<pass>/<id>.ts`). The `/play` dispatcher forwards to `{base}/play/{xu}/{xp}/{id}` and sets the `id` route param so `.m3u8` requests use the HLS handler.
+
+**Consequences:**
+- UI links always match a registered route; covered by a router-level test against an `httptest` upstream.
+- M3U clients using `/play` URLs work again.
+- Anti-collision URLs remain for plain M3U sources.
 
 ---
 
