@@ -458,3 +458,43 @@ func TestXtreamPlay_M3U8UsesHLSHandler(t *testing.T) {
 		t.Errorf("playlist not rewritten by the HLS handler: %q", body)
 	}
 }
+
+// TestXtreamStreams_EscapeProviderCredentials verifies provider credentials are path-escaped in upstream
+// stream URLs, so passwords containing '#', '?' or '/' are forwarded intact.
+func TestXtreamStreams_EscapeProviderCredentials(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		w.Write([]byte("ts")) // nolint: errcheck
+	}))
+	defer upstream.Close()
+
+	c := newXtreamM3UConfig(t, upstream.URL, upstream.URL+"/play/xu/xp/123.ts")
+	c.XtreamPassword = config.CredentialString("p#ss/w?rd")
+	r := gin.New()
+	c.xtreamRoutes(r.Group(""))
+	proxy := httptest.NewServer(r)
+	defer proxy.Close()
+
+	const esc = "p%23ss%2Fw%3Frd"
+	tests := []struct{ path, want string }{
+		{"/play/u/p/123.ts", "/play/xu/" + esc + "/123.ts"},
+		{"/live/u/p/123.ts", "/live/xu/" + esc + "/123.ts"},
+		{"/movie/u/p/123.mp4", "/movie/xu/" + esc + "/123.mp4"},
+		{"/series/u/p/123.mkv", "/series/xu/" + esc + "/123.mkv"},
+		{"/u/p/123", "/xu/" + esc + "/123"},
+	}
+	for _, tt := range tests {
+		gotPath = ""
+		resp, err := http.Get(proxy.URL + tt.path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", tt.path, err)
+		}
+		resp.Body.Close()
+		if gotPath != tt.want {
+			t.Errorf("GET %s: upstream path = %q, want %q", tt.path, gotPath, tt.want)
+		}
+	}
+}

@@ -125,7 +125,7 @@ func (c *Config) xtreamGenerateM3u(ctx *gin.Context, extension string) (*m3u.Pla
 				track.Tags = append(track.Tags, m3u.Tag{Name: "group-title", Value: category.Name})
 			}
 
-			track.URI = fmt.Sprintf("%s/%s%s/%s/%s%s", c.XtreamBaseURL, prefix, c.XtreamUser, c.XtreamPassword, fmt.Sprint(stream.ID), extension)
+			track.URI = fmt.Sprintf("%s/%s%s/%s/%s%s", c.XtreamBaseURL, prefix, c.XtreamUser.PathEscape(), c.XtreamPassword.PathEscape(), fmt.Sprint(stream.ID), extension)
 			playlist.Tracks = append(playlist.Tracks, track)
 		}
 	}
@@ -149,7 +149,7 @@ func (c *Config) xtreamGetAuto(ctx *gin.Context) {
 }
 
 func (c *Config) xtreamGet(ctx *gin.Context) {
-	rawURL := fmt.Sprintf("%s/get.php?username=%s&password=%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword)
+	rawURL := fmt.Sprintf("%s/get.php?username=%s&password=%s", c.XtreamBaseURL, url.QueryEscape(c.XtreamUser.String()), url.QueryEscape(c.XtreamPassword.String()))
 
 	q := ctx.Request.URL.Query()
 
@@ -331,7 +331,7 @@ func (c *Config) xtreamXMLTV(ctx *gin.Context) {
 
 func (c *Config) xtreamStreamHandler(ctx *gin.Context) {
 	id := ctx.Param("id")
-	rpURL, err := url.Parse(fmt.Sprintf("%s/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
+	rpURL, err := url.Parse(fmt.Sprintf("%s/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser.PathEscape(), c.XtreamPassword.PathEscape(), id))
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
@@ -342,7 +342,7 @@ func (c *Config) xtreamStreamHandler(ctx *gin.Context) {
 
 func (c *Config) xtreamStreamLive(ctx *gin.Context) {
 	id := ctx.Param("id")
-	rpURL, err := url.Parse(fmt.Sprintf("%s/live/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
+	rpURL, err := url.Parse(fmt.Sprintf("%s/live/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser.PathEscape(), c.XtreamPassword.PathEscape(), id))
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
@@ -375,7 +375,7 @@ func (c *Config) xtreamPlayDispatch(ctx *gin.Context) {
 		// The catch-all route has no :id param; set it so .m3u8 requests reach hlsXtreamStream.
 		ctx.Params = append(ctx.Params, gin.Param{Key: "id", Value: id})
 		// Keep the /play prefix: providers reject /:user/:password/:id.ts without it.
-		rpURL, err := url.Parse(fmt.Sprintf("%s/play/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
+		rpURL, err := url.Parse(fmt.Sprintf("%s/play/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser.PathEscape(), c.XtreamPassword.PathEscape(), id))
 		if err != nil {
 			ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 			return
@@ -400,7 +400,7 @@ func (c *Config) xtreamStreamTimeshift(ctx *gin.Context) {
 	duration := ctx.Param("duration")
 	start := ctx.Param("start")
 	id := ctx.Param("id")
-	rpURL, err := url.Parse(fmt.Sprintf("%s/timeshift/%s/%s/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, duration, start, id))
+	rpURL, err := url.Parse(fmt.Sprintf("%s/timeshift/%s/%s/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser.PathEscape(), c.XtreamPassword.PathEscape(), duration, start, id))
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
@@ -411,7 +411,7 @@ func (c *Config) xtreamStreamTimeshift(ctx *gin.Context) {
 
 func (c *Config) xtreamStreamMovie(ctx *gin.Context) {
 	id := ctx.Param("id")
-	rpURL, err := url.Parse(fmt.Sprintf("%s/movie/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
+	rpURL, err := url.Parse(fmt.Sprintf("%s/movie/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser.PathEscape(), c.XtreamPassword.PathEscape(), id))
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
@@ -422,7 +422,7 @@ func (c *Config) xtreamStreamMovie(ctx *gin.Context) {
 
 func (c *Config) xtreamStreamSeries(ctx *gin.Context) {
 	id := ctx.Param("id")
-	rpURL, err := url.Parse(fmt.Sprintf("%s/series/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser, c.XtreamPassword, id))
+	rpURL, err := url.Parse(fmt.Sprintf("%s/series/%s/%s/%s", c.XtreamBaseURL, c.XtreamUser.PathEscape(), c.XtreamPassword.PathEscape(), id))
 	if err != nil {
 		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
 		return
