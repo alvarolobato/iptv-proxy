@@ -302,6 +302,19 @@ func (c *Config) marshallInto(into *os.File, xtream bool) error {
 	return into.Sync()
 }
 
+// replaceCredentialSegments swaps the first consecutive user/password path segments. Matching whole
+// segments keeps other segments intact, e.g. numeric stream ids that contain numeric credentials.
+func replaceCredentialSegments(p, fromUser, fromPass, toUser, toPass string) string {
+	segs := strings.Split(p, "/")
+	for i := 0; i+1 < len(segs); i++ {
+		if segs[i] == fromUser && segs[i+1] == fromPass {
+			segs[i], segs[i+1] = toUser, toPass
+			return strings.Join(segs, "/")
+		}
+	}
+	return p
+}
+
 // ReplaceURL replace original playlist url by proxy url
 func (c *Config) replaceURL(uri string, trackIndex int, xtream bool) (string, error) {
 	oriURL, err := url.Parse(uri)
@@ -321,8 +334,9 @@ func (c *Config) replaceURL(uri string, trackIndex int, xtream bool) (string, er
 
 	uriPath := oriURL.EscapedPath()
 	if xtream {
-		uriPath = strings.ReplaceAll(uriPath, c.XtreamUser.PathEscape(), url.PathEscape(c.pathAuthUser()))
-		uriPath = strings.ReplaceAll(uriPath, c.XtreamPassword.PathEscape(), url.PathEscape(c.pathAuthPassword()))
+		uriPath = replaceCredentialSegments(uriPath,
+			c.XtreamUser.PathEscape(), c.XtreamPassword.PathEscape(),
+			url.PathEscape(c.pathAuthUser()), url.PathEscape(c.pathAuthPassword()))
 	} else {
 		uriPath = path.Join("/", c.endpointAntiColision, url.PathEscape(c.pathAuthUser()), url.PathEscape(c.pathAuthPassword()), fmt.Sprintf("%d", trackIndex), path.Base(uriPath))
 	}

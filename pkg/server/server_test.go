@@ -498,3 +498,205 @@ func TestXtreamStreams_EscapeProviderCredentials(t *testing.T) {
 		}
 	}
 }
+
+// TestReplaceURL_XtreamCredentialSegments verifies Xtream credentials are swapped as whole path segments,
+// so numeric credentials don't corrupt stream ids or fixed path words that contain them.
+func TestReplaceURL_XtreamCredentialSegments(t *testing.T) {
+	tests := []struct{ user, pass, uri, wantPath string }{
+		{"1234", "5678", "http://prov:80/play/1234/5678/12345678.ts", "/play/u/p/12345678.ts"},
+		{"1234", "5678", "http://prov:80/1234/5678/91234.ts", "/u/p/91234.ts"},
+		{"a", "5678", "http://prov:80/play/a/5678/1.ts", "/play/u/p/1.ts"},
+		{"xu", "p#ss", "http://prov:80/live/xu/p%23ss/7.ts", "/live/u/p/7.ts"},
+	}
+	for _, tt := range tests {
+		c := &Config{ProxyConfig: &config.ProxyConfig{
+			HostConfig:     &config.HostConfiguration{Hostname: "localhost", Port: 8080},
+			User:           config.CredentialString("u"),
+			Password:       config.CredentialString("p"),
+			XtreamUser:     config.CredentialString(tt.user),
+			XtreamPassword: config.CredentialString(tt.pass),
+		}}
+		got, err := c.replaceURL(tt.uri, 0, true)
+		if err != nil {
+			t.Fatalf("replaceURL(%q): %v", tt.uri, err)
+		}
+		u, err := url.Parse(got)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", got, err)
+		}
+		if u.EscapedPath() != tt.wantPath {
+			t.Errorf("replaceURL(%q) path = %q, want %q", tt.uri, u.EscapedPath(), tt.wantPath)
+		}
+	}
+}
+
+// TestXtreamStreams_EscapeCredentialsTimeshiftAndHLSR covers the remaining upstream URL builders.
+func TestXtreamStreams_EscapeCredentialsTimeshiftAndHLSR(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		w.Write([]byte("ts")) // nolint: errcheck
+	}))
+	defer upstream.Close()
+
+	redirect, err := url.Parse(upstream.URL + "/hls/tok/123.m3u8")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	hlsChannelsRedirectURLLock.Lock()
+	hlsChannelsRedirectURL["123.m3u8"] = *redirect
+	hlsChannelsRedirectURLLock.Unlock()
+
+	c := newXtreamM3UConfig(t, upstream.URL, upstream.URL+"/play/xu/xp/123.ts")
+	c.XtreamPassword = config.CredentialString("p#ss/w?rd")
+	r := gin.New()
+	c.xtreamRoutes(r.Group(""))
+	proxy := httptest.NewServer(r)
+	defer proxy.Close()
+
+	const esc = "p%23ss%2Fw%3Frd"
+	tests := []struct{ path, want string }{
+		{"/timeshift/u/p/60/2026-01-01:10-00/123.ts", "/timeshift/xu/" + esc + "/60/2026-01-01:10-00/123.ts"},
+		{"/hlsr/tok/u/p/123/hash/1.ts", "/hlsr/tok/xu/" + esc + "/123/hash/1.ts"},
+	}
+	for _, tt := range tests {
+		gotPath = ""
+		resp, err := http.Get(proxy.URL + tt.path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", tt.path, err)
+		}
+		resp.Body.Close()
+		if gotPath != tt.want {
+			t.Errorf("GET %s: upstream path = %q, want %q", tt.path, gotPath, tt.want)
+		}
+	}
+}
+
+// TestXtreamPlay_ProxyPasswordWithSlash verifies UI /play links work when the proxy password contains '/',
+// which replaceURL writes as %2F and Gin decodes before routing.
+func TestXtreamPlay_ProxyPasswordWithSlash(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var upstreamPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPath = r.URL.EscapedPath()
+		w.Write([]byte("ts")) // nolint: errcheck
+	}))
+	defer upstream.Close()
+
+	c := newXtreamM3UConfig(t, upstream.URL, upstream.URL+"/play/xu/xp/123.ts")
+	c.Password = config.CredentialString("a/b")
+	c.ProxyConfig.Users = nil
+	c.ProxyConfig.MigrateDefaultUser()
+	r := gin.New()
+	c.routes(r.Group(""))
+	proxy := httptest.NewServer(r)
+	defer proxy.Close()
+
+	out := c.channelsProcessed()
+	if len(out) != 1 || !strings.Contains(out[0].StreamURL, "/play/u/a%2Fb/123.ts") {
+		t.Fatalf("channelsProcessed() = %+v, want stream_url with escaped password segment", out)
+	}
+	streamURL, err := url.Parse(out[0].StreamURL)
+	if err != nil {
+		t.Fatalf("url.Parse(stream_url): %v", err)
+	}
+
+	resp, err := http.Get(proxy.URL + streamURL.EscapedPath())
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	if upstreamPath != "/play/xu/xp/123.ts" {
+		t.Errorf("upstream path = %q, want /play/xu/xp/123.ts", upstreamPath)
+	}
+}
+
+// TestXtreamPlay_M3U8RewritesEscapedCredentials verifies the HLS playlist rewrite also replaces provider
+// credentials that the provider wrote path-escaped, so they never reach the client.
+func TestXtreamPlay_M3U8RewritesEscapedCredentials(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var upstreamURL string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.EscapedPath() {
+		case "/play/xu/p%23ss/123.m3u8":
+			http.Redirect(w, r, upstreamURL+"/hls/tok/123.m3u8", http.StatusFound)
+		case "/hls/tok/123.m3u8":
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			w.Write([]byte("#EXTM3U\n/hlsr/tok/xu/p%23ss/123/1/seg.ts\n")) // nolint: errcheck
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+	upstreamURL = upstream.URL
+
+	c := newXtreamM3UConfig(t, upstream.URL, upstream.URL+"/play/xu/xp/123.m3u8")
+	c.XtreamPassword = config.CredentialString("p#ss")
+	r := gin.New()
+	c.xtreamRoutes(r.Group(""))
+	proxy := httptest.NewServer(r)
+	defer proxy.Close()
+
+	resp, err := http.Get(proxy.URL + "/play/u/p/123.m3u8")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %q)", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "/hlsr/tok/u/p/123/1/seg.ts") || strings.Contains(string(body), "p%23ss") {
+		t.Errorf("playlist credentials not rewritten: %q", body)
+	}
+}
+
+// TestRoutes_SameHostNonGetPHPKeepsM3URoutes verifies a plain M3U on the Xtream host (not get.php) still
+// gets per-track anti-collision routes next to the Xtream routes, and the UI links to them.
+func TestRoutes_SameHostNonGetPHPKeepsM3URoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ts")) // nolint: errcheck
+	}))
+	defer upstream.Close()
+
+	c := newXtreamM3UConfig(t, upstream.URL, upstream.URL+"/streams/stream1.ts")
+	remote, err := url.Parse(upstream.URL + "/playlist.m3u?username=xu&password=xp")
+	if err != nil {
+		t.Fatalf("url.Parse: %v", err)
+	}
+	c.RemoteURL = remote
+	if c.servesXtreamM3U() {
+		t.Fatal("servesXtreamM3U() = true for a non-get.php playlist")
+	}
+	r := gin.New()
+	c.routes(r.Group(""))
+	proxy := httptest.NewServer(r)
+	defer proxy.Close()
+
+	out := c.channelsProcessed()
+	if len(out) != 1 || !strings.Contains(out[0].StreamURL, "/x/u/p/0/stream1.ts") {
+		t.Fatalf("channelsProcessed() = %+v, want anti-collision stream_url", out)
+	}
+	streamURL, err := url.Parse(out[0].StreamURL)
+	if err != nil {
+		t.Fatalf("url.Parse(stream_url): %v", err)
+	}
+	resp, err := http.Get(proxy.URL + streamURL.EscapedPath())
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET %s status = %d, want 200", streamURL.EscapedPath(), resp.StatusCode)
+	}
+}

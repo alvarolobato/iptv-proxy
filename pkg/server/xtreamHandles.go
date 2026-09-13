@@ -357,8 +357,24 @@ func (c *Config) xtreamStreamLive(ctx *gin.Context) {
 //
 // These two patterns conflict in Gin's router, so we use a single catch-all.
 func (c *Config) xtreamPlayDispatch(ctx *gin.Context) {
-	p := strings.TrimPrefix(ctx.Param("path"), "/")
-	parts := strings.SplitN(p, "/", 3)
+	// Split the escaped path: Gin decodes ctx.Param("path"), so a credential containing an
+	// encoded '/' (%2F) would otherwise be split into extra segments.
+	raw := ctx.Request.URL.EscapedPath()
+	i := strings.Index(raw, "/play/")
+	if i < 0 {
+		ctx.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+	rawParts := strings.SplitN(raw[i+len("/play/"):], "/", 3)
+	parts := make([]string, len(rawParts))
+	for j, rp := range rawParts {
+		seg, err := url.PathUnescape(rp)
+		if err != nil {
+			ctx.AbortWithStatus(http.StatusBadRequest)
+			return
+		}
+		parts[j] = seg
+	}
 	switch len(parts) {
 	case 3:
 		// /play/:user/:password/:id — authenticate and stream
@@ -497,8 +513,8 @@ func (c *Config) xtreamHlsrStream(ctx *gin.Context) {
 			url.Scheme,
 			url.Host,
 			ctx.Param("token"),
-			c.XtreamUser,
-			c.XtreamPassword,
+			c.XtreamUser.PathEscape(),
+			c.XtreamPassword.PathEscape(),
 			ctx.Param("channel"),
 			ctx.Param("hash"),
 			ctx.Param("chunk"),
@@ -580,7 +596,10 @@ func (c *Config) hlsXtreamStream(ctx *gin.Context, oriURL *url.URL) {
 				return
 			}
 			body := string(b)
-			body = strings.ReplaceAll(body, "/"+c.XtreamUser.String()+"/"+c.XtreamPassword.String()+"/", "/"+c.pathAuthUser()+"/"+c.pathAuthPassword()+"/")
+			// Providers may write credentials raw or path-escaped; replace both so they never reach the client.
+			proxyCreds := "/" + url.PathEscape(c.pathAuthUser()) + "/" + url.PathEscape(c.pathAuthPassword()) + "/"
+			body = strings.ReplaceAll(body, "/"+c.XtreamUser.PathEscape()+"/"+c.XtreamPassword.PathEscape()+"/", proxyCreds)
+			body = strings.ReplaceAll(body, "/"+c.XtreamUser.String()+"/"+c.XtreamPassword.String()+"/", proxyCreds)
 
 			mergeHttpHeader(ctx.Writer.Header(), hlsResp.Header)
 
