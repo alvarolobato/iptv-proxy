@@ -88,8 +88,14 @@ export function copyText(text) {
   return fallback();
 }
 
-function InBrowserPlayer({ url, kind }) {
+function InBrowserPlayer({ url, kind, focusOnMount = false }) {
   const videoRef = useRef(null);
+
+  // After "Resume in browser" the resume button is gone; move focus into the player so keyboard
+  // users (and Escape to close the sheet) keep working.
+  useEffect(() => {
+    if (focusOnMount) videoRef.current?.focus({ preventScroll: true });
+  }, [focusOnMount]);
   const supported = useMemo(() => canPlayInBrowser(kind), [kind]);
   const [status, setStatus] = useState('loading'); // loading | playing | paused | stalled | error
   const [error, setError] = useState('');
@@ -190,6 +196,8 @@ function InBrowserPlayer({ url, kind }) {
   const startPlayback = () => {
     const video = videoRef.current;
     if (!video) return;
+    // The Play button unmounts on click; keep focus inside the sheet.
+    video.focus({ preventScroll: true });
     setStatus('loading');
     video.play()?.catch((err) => {
       if (err?.name === 'NotAllowedError') setStatus('paused');
@@ -312,7 +320,12 @@ export function PlayerSheet({ channel, onClose }) {
   // Opening an external player stops in-browser playback first: providers allow few simultaneous
   // connections and the external app needs one.
   const [stopped, setStopped] = useState(false);
+  const [resumed, setResumed] = useState(false);
   const stopInBrowser = () => setStopped(true);
+  const resumeInBrowser = () => {
+    setStopped(false);
+    setResumed(true);
+  };
 
   const downloadM3u = () => {
     stopInBrowser();
@@ -326,7 +339,11 @@ export function PlayerSheet({ channel, onClose }) {
     setTimeout(() => URL.revokeObjectURL(href), 1000);
   };
 
-  const copyUrl = () => copyText(url).then(() => setCopyLabel('Copied'), () => setCopyLabel('Copy failed'));
+  const copyUrl = () => {
+    // The copied URL is meant for another player, which needs the connection.
+    stopInBrowser();
+    return copyText(url).then(() => setCopyLabel('Copied'), () => setCopyLabel('Copy failed'));
+  };
 
   let playerArea;
   if (kind === 'external') {
@@ -345,13 +362,13 @@ export function PlayerSheet({ channel, onClose }) {
     playerArea = (
       <EuiCallOut size="s" title="Browser playback stopped" data-testid="player-stopped">
         <p>Stopped here so the other app can use the connection (providers allow only a few at a time).</p>
-        <EuiButton size="s" iconType="play" onClick={() => setStopped(false)} data-testid="player-resume">
+        <EuiButton size="s" iconType="play" onClick={resumeInBrowser} data-testid="player-resume">
           Resume in browser
         </EuiButton>
       </EuiCallOut>
     );
   } else {
-    playerArea = <InBrowserPlayer key={url} url={url} kind={kind} />;
+    playerArea = <InBrowserPlayer key={url} url={url} kind={kind} focusOnMount={resumed} />;
   }
 
   return (
@@ -402,22 +419,19 @@ export function PlayerSheet({ channel, onClose }) {
   );
 }
 
-// PlayStreamLink is a native <a href> to the stream (middle-click and "copy link" still work) that opens
-// the player sheet on a plain click instead of navigating to the raw stream.
-export function PlayStreamLink({ channel, iconSize = 's', style, testId, ariaLabel = 'Open stream', ...rest }) {
-  const [open, setOpen] = useState(false);
+// PlayStreamLink is a native <a href> to the stream (middle-click and "copy link" still work) that calls
+// onPlay(channel) on a plain click instead of navigating to the raw stream. The parent renders a single
+// PlayerSheet outside any table, so layout changes (e.g. rotating a phone) don't unmount the player.
+export function PlayStreamLink({ channel, onPlay, iconSize = 's', style, testId, ariaLabel = 'Open stream', ...rest }) {
   if (!channel?.stream_url) return null;
   const onClick = (e) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
-    setOpen(true);
+    onPlay(channel);
   };
   return (
-    <Fragment>
-      <a {...rest} href={channel.stream_url} onClick={onClick} aria-label={ariaLabel} title={channel.stream_url} data-testid={testId} style={style}>
-        <EuiIcon type="play" size={iconSize} />
-      </a>
-      {open && <PlayerSheet channel={channel} onClose={() => setOpen(false)} />}
-    </Fragment>
+    <a {...rest} href={channel.stream_url} onClick={onClick} aria-label={ariaLabel} title={channel.stream_url} data-testid={testId} style={style}>
+      <EuiIcon type="play" size={iconSize} />
+    </a>
   );
 }

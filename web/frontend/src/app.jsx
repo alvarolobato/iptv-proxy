@@ -48,7 +48,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { SettingsPage } from './settings';
 import { useIsMobile } from './responsive';
-import { PlayStreamLink } from './player';
+import { PlayerSheet, PlayStreamLink } from './player';
 import { TvPage } from './tv';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -1134,6 +1134,9 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
   const [typeFilters, setTypeFilters] = useState({});
   const [editingChannelName, setEditingChannelName] = useState(null);
   const [editingChannelValue, setEditingChannelValue] = useState('');
+  // One player sheet for the tab, rendered outside the table: row cells unmount when the layout switches
+  // between mobile cards and desktop columns (e.g. rotating a phone), which would close the player.
+  const [playing, setPlaying] = useState(null);
   const isMobile = useIsMobile();
 
   const fetchChannels = useCallback(() => {
@@ -1270,7 +1273,7 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
               actions={
                 <Fragment>
                   {r.stream_url ? (
-                    <PlayStreamLink channel={r} iconSize="m" style={TOUCH_LINK_STYLE} ariaLabel={`Open stream for ${displayName}`} />
+                    <PlayStreamLink channel={r} onPlay={setPlaying} iconSize="m" style={TOUCH_LINK_STYLE} ariaLabel={`Open stream for ${displayName}`} />
                   ) : (
                     <span aria-hidden="true" style={{ display: 'inline-block', width: 40, height: 40 }} />
                   )}
@@ -1415,11 +1418,11 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
             <EuiToolTip content="Add to exclusions">
               <EuiButtonEmpty iconType="minusInCircleFilled" size="xs" color="danger" onClick={() => onAddToProcessing({ section: 'channel_exclusions', value: channelName })} aria-label="Add to exclusions" isDisabled={addInProgress} />
             </EuiToolTip>
-            {/* No EuiToolTip wrapper: the player sheet renders inside PlayStreamLink, and React events from the
-                modal would bubble to the tooltip. The native title attribute already shows the URL on hover. */}
+            {/* Native title attribute shows the URL on hover; the player sheet is rendered once outside the table. */}
             {streamUrl && (
               <PlayStreamLink
                 channel={row}
+                onPlay={setPlaying}
                 testId="channel-open-stream"
                 style={{
                   display: 'inline-flex',
@@ -1538,6 +1541,7 @@ function ChannelsTab({ groupFilter, showIncluded, showExcluded, onShowIncludedCh
         onChange={onChannelsTableChange}
         rowProps={(item) => ({ className: item.excluded === true ? 'euiTableRow--excluded' : 'euiTableRow--included' })}
       />
+      {playing && <PlayerSheet channel={playing} onClose={() => setPlaying(null)} />}
     </Fragment>
   );
 }

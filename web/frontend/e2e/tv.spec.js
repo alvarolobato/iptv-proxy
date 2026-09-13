@@ -178,10 +178,11 @@ test.describe('TV view', () => {
     await expect(sheet.getByTestId('player-video')).toHaveCount(0);
     await sheet.getByTestId('player-resume').click();
     await expect(sheet.getByTestId('player-video')).toBeAttached();
+    // The Resume button unmounts on click; focus moves into the player so Escape still closes the sheet.
+    await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('data-testid'))).toBe('player-video');
 
-    // Closing the sheet removes the player. (The Resume button unmounts when clicked, so focus has left the
-    // modal and Escape wouldn't reach it; use the close button.)
-    await sheet.getByRole('button', { name: /close/i }).click();
+    // Closing the sheet (Escape) removes the player.
+    await page.keyboard.press('Escape');
     await expect(sheet).toHaveCount(0);
     await expect(page.getByTestId('player-video')).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Recently played' }).getByRole('button', { name: playable.name, exact: true })).toBeVisible();
@@ -205,6 +206,23 @@ test.describe('TV view', () => {
     await expect(sheet.getByTestId('player-frame')).toHaveAttribute('data-status', 'paused');
     await expect(sheet.getByTestId('player-start')).toBeVisible();
     await expect(sheet.getByTestId('player-error')).toHaveCount(0);
+
+    // The Play button unmounts on click; focus stays inside the sheet so Escape still closes it.
+    await sheet.getByTestId('player-start').click();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('data-testid'))).toBe('player-video');
+    await page.keyboard.press('Escape');
+    await expect(sheet).toHaveCount(0);
+  });
+
+  test('copying the stream URL stops browser playback', async ({ page, request }) => {
+    const { playable } = await fixtureChannels(request);
+    await blockStreams(page);
+    await page.goto('/tv');
+    const sheet = await openSheet(page, playable.name);
+    await expect(sheet.getByTestId('player-video')).toBeAttached();
+    await sheet.getByTestId('player-copy-url').click();
+    await expect(sheet.getByTestId('player-stopped')).toBeVisible();
+    await expect(sheet.getByTestId('player-video')).toHaveCount(0);
   });
 
   test('header TV button opens the TV view', async ({ page }) => {
@@ -251,6 +269,25 @@ test.describe('TV view on Android (Pixel 7)', () => {
     await clickWithoutNavigating(vlc);
     await expect(sheet.getByTestId('player-stopped')).toBeVisible();
     await expect(sheet.getByTestId('player-video')).toHaveCount(0);
+  });
+
+  test('Channels tab player stays open when the phone rotates to landscape', async ({ page }) => {
+    await blockStreams(page);
+    await page.goto('/');
+    await page.getByRole('tab', { name: 'Channels', exact: true }).click();
+    const mobilePlay = page.getByRole('link', { name: /^Open stream for / }).first();
+    await expect(mobilePlay).toBeVisible({ timeout: 15000 });
+    await mobilePlay.click();
+    const sheet = page.getByTestId('player-sheet');
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByTestId('player-frame')).toBeAttached();
+
+    // Landscape width switches the table from mobile cards to desktop columns.
+    await page.setViewportSize({ width: 915, height: 412 });
+    await expect(page.getByTestId('channel-open-stream').first()).toBeAttached();
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByTestId('player-frame')).toBeAttached();
+    await expect(page.getByTestId('player-sheet')).toHaveCount(1);
   });
 });
 
