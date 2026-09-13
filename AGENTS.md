@@ -125,6 +125,8 @@ The Playwright config starts the server via `webServer` (see `web/frontend/scrip
 - **Verifying excluded items:** The backend must return an `excluded` flag on groups/channels (e.g. `/api/groups`, `/api/channels`). In the UI, wait for real rows to appear, then assert that both “Included” and “Excluded” appear in the table (or that toggling the filter shows the expected subset). Rely on API tests to assert that at least one item has `excluded: true` and one has `excluded !== true` when exclusions are configured.
 - **Server readiness:** The Playwright `webServer` uses `http://localhost:18081/api/ready`. The backend returns 200 only when the playlist has been loaded (at least one track). This avoids starting tests before the proxy has fetched the M3U. The start script (`start-e2e-server.mjs`) writes golden testdata, ensures the M3U server responds, waits briefly, then starts the proxy; `reuseExistingServer: false` so the proxy always runs against the fixture M3U.
 
+- **`fullPage` screenshots can flip responsive layouts.** A Playwright `fullPage: true` capture fires a transient resize; `useIsMobile()` (EUI breakpoint hooks) can then stay on the mobile layout at desktop width until the next real resize. When a test takes full-page screenshots and keeps interacting, nudge the viewport (`setViewportSize` +1px and back) or reload before asserting layout.
+
 ### Debugging
 
 - Use the API from tests: `request.get('/api/groups')`, `request.get('/api/settings')`, etc.
@@ -153,7 +155,10 @@ The Playwright config starts the server via `webServer` (see `web/frontend/scrip
 
 - **Register every EUI icon** in `web/frontend/src/icons_hack.jsx` via `appendIconComponentCache`. Unregistered icons render as empty. Rebuild the frontend after adding icons.
 - **Use native `<a href>` for stream links**, not `EuiButtonEmpty` with `href` (which causes `about:blank#blocked`). Set `title` to the URL for hover visibility.
-- **Action order in tables:** Put "Open stream" to the right of filter actions so missing stream URLs don’t shift button alignment.
+- **Action order in tables:** Put "Open stream" to the right of filter actions so missing stream URLs don’t shift button alignment. On mobile compact rows, "More actions" is always rightmost; rows without a stream render a 40px placeholder in the play slot so the menu stays aligned.
+- **Don't convey status by color alone** on compact rows: pair the stripe with a check/cross icon (screen-reader text stays in `EuiScreenReaderOnly`).
+- **Mobile layouts:** Below EUI `m` (768px) `EuiBasicTable` collapses into cards and repeats every column label. Pass columns through `withMobileSummary(summaryColumn, columns)` (app.jsx) so phones get one compact card cell while desktop columns stay unchanged; use `useIsMobile()` (`src/responsive.js`, same breakpoint) for other compact layouts. Hiding the sortable columns also hides EUI's mobile sort popover — render `MobileSortControl` for sortable lists.
+- **Phone-friendly content:** Card actions use 40px touch targets (`TouchIconButton`, `EuiButtonEmpty size="m"`); long unbreakable text (URLs, regex, `<pre>`) needs `overflow-wrap: anywhere` / `white-space: pre-wrap`; tab strips must fit ~360px (use `EuiTabs size="s"` or a select). `e2e/mobile.spec.js` asserts no horizontal overflow on a Pixel 7 viewport.
 
 ### Multi-user and auth
 

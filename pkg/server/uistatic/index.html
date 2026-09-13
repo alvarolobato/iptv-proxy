@@ -20,8 +20,20 @@
         color: #fff !important;
         text-decoration: none !important;
       }
+      /* Long unbreakable values (e.g. example URLs in help text) wrap instead of widening the page on phones */
+      .euiFormHelpText { overflow-wrap: anywhere; }
+      /* Collapsed (mobile, below EUI 'm' = 768px) tables: tighter cards around the single summary cell */
+      @media (max-width: 767px) {
+        .euiBasicTable .euiTableRow { padding: 6px !important; margin-bottom: 6px !important; }
+        .euiBasicTable .euiTableRowCell .euiTableCellContent { padding: 4px !important; }
+        /* Condensed rows (Groups/Channels): the row itself is the card, so drop most of the chrome */
+        .euiBasicTable .euiTableRow:has([data-testid="compact-row"]) { padding: 2px 4px 2px 0 !important; margin-bottom: 4px !important; }
+        .euiBasicTable .euiTableRow:has([data-testid="compact-row"]) .euiTableCellContent { padding: 2px 0 !important; min-width: 0; }
+        /* EUI wraps cell content in an inline span; make it a full-width block so the row fills the card and ellipsizes */
+        .euiBasicTable .euiTableRow:has([data-testid="compact-row"]) .euiTableCellContent__text { display: block; width: 100%; min-width: 0; }
+      }
     </style>
-    <script type="module" crossorigin src="/assets/index-BpGDrJ_1.js"></script>
+    <script type="module" crossorigin src="/assets/index-A2zfUNNE.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-CW9KHOus.css">
   </head>
   <body>
