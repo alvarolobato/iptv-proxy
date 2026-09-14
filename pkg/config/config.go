@@ -85,6 +85,12 @@ type ProxyConfig struct {
 	// StatsEnabled explicitly enables/disables stats (default: true when ESUrl is set).
 	StatsEnabled bool
 
+	// UpstreamConnectTimeout bounds connecting to the provider or the stream server it redirects to
+	// (0 = default 8s); response headers must arrive within twice this.
+	UpstreamConnectTimeout time.Duration
+	// UpstreamRetries is how many extra attempts a provider request gets when the upstream is unreachable or silent.
+	UpstreamRetries int
+
 	// Users holds all proxy users. After MigrateDefaultUser runs at startup,
 	// the CLI --user/--password is included here. Auth and CRUD operate on this slice only.
 	Users []User

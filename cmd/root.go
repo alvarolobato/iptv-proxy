@@ -105,6 +105,8 @@ var rootCmd = &cobra.Command{
 			M3UCacheExpiration:       viper.GetInt("m3u-cache-expiration"),
 			XMLTVCacheTTL:            parseDuration(viper.GetString("xmltv-cache-ttl")),
 			XMLTVCacheMaxEntries:     viper.GetInt("xmltv-cache-max-entries"),
+			UpstreamConnectTimeout:   parseDuration(viper.GetString("upstream-connect-timeout")),
+			UpstreamRetries:          viper.GetInt("upstream-retries"),
 			User:                     config.CredentialString(viper.GetString("user")),
 			Password:                 config.CredentialString(viper.GetString("password")),
 			AdvertisedPort:           viper.GetInt("advertised-port"),
@@ -220,6 +222,9 @@ func init() {
 	rootCmd.Flags().Bool("xtream-api-get", false, "Serve get.php from Xtream API instead of provider endpoint")
 	rootCmd.Flags().String("xmltv-cache-ttl", "", "XMLTV (EPG) cache TTL (e.g. 1h, 30m); empty = no cache")
 	rootCmd.Flags().Int("xmltv-cache-max-entries", 100, "Max cached XMLTV responses")
+	// Upstream (provider) connections
+	rootCmd.Flags().String("upstream-connect-timeout", "8s", "Timeout to connect to the provider or its stream server (e.g. 8s); response headers must arrive within twice this")
+	rootCmd.Flags().Int("upstream-retries", 2, "Extra attempts when the provider's stream server is unreachable or silent; each asks the provider for a fresh redirect")
 	// Elasticsearch stats
 	rootCmd.Flags().String("es-url", "", "Elasticsearch base URL for stats (e.g. https://mycluster.es.io); enables stats when set")
 	rootCmd.Flags().String("es-api-key", "", "Elasticsearch API key (base64 id:key); env: IPTV_PROXY_ES_API_KEY")

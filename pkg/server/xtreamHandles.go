@@ -19,6 +19,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -544,23 +545,18 @@ func getHlsRedirectURL(channel string) (*url.URL, error) {
 }
 
 func (c *Config) hlsXtreamStream(ctx *gin.Context, oriURL *url.URL) {
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := c.upstreamClient(false)
 
-	req, err := http.NewRequest("GET", oriURL.String(), nil)
+	resp, err := c.doUpstream(ctx, client, func(reqCtx context.Context) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(reqCtx, "GET", oriURL.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+		mergeHttpHeader(req.Header, ctx.Request.Header)
+		return req, nil
+	})
 	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-		return
-	}
-
-	mergeHttpHeader(req.Header, ctx.Request.Header)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+		abortUpstream(ctx, err)
 		return
 	}
 	defer resp.Body.Close()
@@ -577,17 +573,16 @@ func (c *Config) hlsXtreamStream(ctx *gin.Context, oriURL *url.URL) {
 			hlsChannelsRedirectURL[id] = *location
 			hlsChannelsRedirectURLLock.Unlock()
 
-			hlsReq, err := http.NewRequest("GET", location.String(), nil)
+			hlsResp, err := c.doUpstream(ctx, client, func(reqCtx context.Context) (*http.Request, error) {
+				hlsReq, err := http.NewRequestWithContext(reqCtx, "GET", location.String(), nil)
+				if err != nil {
+					return nil, err
+				}
+				mergeHttpHeader(hlsReq.Header, ctx.Request.Header)
+				return hlsReq, nil
+			})
 			if err != nil {
-				ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-				return
-			}
-
-			mergeHttpHeader(hlsReq.Header, ctx.Request.Header)
-
-			hlsResp, err := client.Do(hlsReq)
-			if err != nil {
-				ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+				abortUpstream(ctx, err)
 				return
 			}
 			defer hlsResp.Body.Close()

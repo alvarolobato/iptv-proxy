@@ -64,6 +64,17 @@ See [replacements.md](replacements.md) for the replacements file format.
 
 ---
 
+## Upstream connections
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--upstream-connect-timeout` | `8s` | Timeout to connect to the provider or to the stream server it redirects to. Response headers must arrive within twice this. |
+| `--upstream-retries` | 2 | Extra attempts when that server is unreachable or silent. Each attempt re-requests the provider URL, which may redirect to a different stream server. Only failures before any data is sent to the player are retried. When all attempts fail the player gets `504 Gateway Timeout` (timeouts) or `502 Bad Gateway` (other connection errors). |
+
+Environment variables: `IPTV_PROXY_UPSTREAM_CONNECT_TIMEOUT`, `IPTV_PROXY_UPSTREAM_RETRIES`.
+
+---
+
 ## Configuration UI
 
 | Flag | Default | Description |

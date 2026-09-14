@@ -5,6 +5,23 @@ Newest entries first.
 
 ---
 
+## ADR-015: Fail fast and retry unreachable provider stream servers
+
+**Date:** 2026-09-14
+**Status:** Implemented
+**PR:** (this PR)
+
+**Context:** Xtream providers redirect stream requests to one of several stream servers. Some are intermittently unreachable; the proxy used a bare `http.Client{}`, so the player waited for Go's default ~30 s dial timeout and then got `500`. The upstream request was also not tied to the client request, and the logged error included the provider URL (with credentials).
+
+**Decision:** All stream and HLS provider requests go through `doUpstream` with a shared transport: dial timeout `--upstream-connect-timeout` (default 8 s), response-header timeout twice that. Timeouts, failed dials and refused/reset connections are retried `--upstream-retries` times (default 2) with a short backoff, re-requesting the original provider URL so the provider can hand out a different stream server. Retries happen only before anything is written to the client, stop when the client disconnects, and failures return `504`/`502` with a log reason that omits the URL path.
+
+**Consequences:**
+- A dead stream server costs ~8 s per attempt instead of 30 s; a working alternative is found automatically when the provider offers one.
+- Worst case (all attempts silent) is about `(1 + retries) × 3 × connect timeout` — ~72 s with defaults for servers that accept but never answer, ~25 s for unreachable ones.
+- HTTP error statuses from the provider are passed through unchanged and never retried.
+
+---
+
 ## ADR-014: TV play view with mpegts.js player and VLC deep links
 
 **Date:** 2026-09-13
