@@ -23,14 +23,20 @@ import { VLC_APP_STORE_URL, buildM3u, detectPlatform, externalPlayerLinks, isBlo
 // mpegts.js logs every segment at info/debug level by default; keep only warnings and errors.
 mpegts.LoggingControl.applyConfig({ enableDebug: false, enableVerbose: false, enableInfo: false });
 
-// Low-latency live MPEG-TS settings. Range loading keeps the mpegts.js defaults: the first request then carries
-// no Range or custom headers, so cross-origin requests to the proxy port need no CORS preflight.
+// Buffered live MPEG-TS settings: smooth playback over low latency. With latency chasing on, mpegts.js keeps only
+// ~0.5 s buffered and jumps forward whenever it exceeds 1.5 s, so any network jitter stalls playback (measured on
+// real IPTV streams: 28 stalls in 45 s vs 0 with this config, ~10 s behind live). Range loading keeps the mpegts.js
+// defaults: the first request then carries no Range or custom headers, so cross-origin requests to the proxy port
+// need no CORS preflight.
 const MPEGTS_CONFIG = {
   enableWorker: true,
-  enableStashBuffer: false,
+  enableStashBuffer: true,
+  stashInitialSize: 1024 * 1024,
   lazyLoad: false,
-  liveBufferLatencyChasing: true,
+  liveBufferLatencyChasing: false,
   autoCleanupSourceBuffer: true,
+  autoCleanupMaxBackwardDuration: 60,
+  autoCleanupMinBackwardDuration: 30,
 };
 
 // If nothing plays after this long (channel offline, provider connection limit, unsupported codec),
