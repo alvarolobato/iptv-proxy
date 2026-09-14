@@ -158,6 +158,7 @@ The Playwright config starts the server via `webServer` (see `web/frontend/scrip
 - **Keep the upstream path prefix when proxying Xtream streams.** `/play/:user/:password/:id` must forward to `{base}/play/{xu}/{xp}/{id}`; providers return 404 for `{base}/{xu}/{xp}/{id}.ts`.
 - **Catch-all dispatchers have no `:id` param.** Before calling helpers that read `ctx.Param("id")` (e.g. `xtreamStreamWithChannelInfo`, whose `.m3u8` detection picks `hlsXtreamStream`), append `gin.Param{Key: "id", ...}` to `ctx.Params` in `/play/*path`-style dispatchers.
 - **`servesXtreamM3U()` must stay strict.** Same host and port as the Xtream base URL, `get.php` path, non-empty matching credentials — it decides both route registration and UI stream URLs.
+- **Keep the in-browser player buffered.** Don't turn `liveBufferLatencyChasing` back on or disable `enableStashBuffer` in `player.jsx`: with mpegts.js defaults the player keeps ~0.5 s buffered and stalls constantly on IPTV streams (ADR-016). Tune with a real-stream benchmark in Chrome (`channel: 'chrome'`), not the bundled Chromium.
 
 ### UI (EUI / React)
 

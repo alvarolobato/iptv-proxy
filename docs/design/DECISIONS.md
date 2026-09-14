@@ -5,6 +5,22 @@ Newest entries first.
 
 ---
 
+## ADR-016: Buffered in-browser player settings instead of low latency
+
+**Date:** 2026-09-14
+**Status:** Implemented
+**PR:** (this PR)
+
+**Context:** Users reported the in-browser TV player "always buffering". The mpegts.js config enabled `liveBufferLatencyChasing` with its defaults (max latency 1.5 s, min remain 0.5 s) and disabled the stash buffer, so the player kept ~0.5 s buffered and jumped forward whenever more arrived. Benchmark in Chrome against the production proxy (La 1, 45 s each): current config 28 stalls / 5.3 s stalled / 0.5 s buffered ahead / 9 forward jumps; stash buffer on + no latency chasing 0 stalls / 11.7 s ahead; relaxed chasing (10 s / 4 s) 2 stalls / 4.7 s ahead.
+
+**Decision:** Enable the stash buffer (1 MB initial), disable latency chasing, keep `autoCleanupSourceBuffer` with 60 s / 30 s windows.
+
+**Consequences:**
+- Smooth playback on jittery IPTV streams; live TV runs ~10–12 s behind real time (acceptable for a TV view; VLC is similar).
+- Slightly more memory per session (bounded by the cleanup windows).
+
+---
+
 ## ADR-014: TV play view with mpegts.js player and VLC deep links
 
 **Date:** 2026-09-13
@@ -15,7 +31,7 @@ Newest entries first.
 
 **Decision:**
 - Add a dedicated **`/tv` view** instead of changing the Channels tab defaults: it shows only the final processed list (included channels with replaced names/groups and a `stream_url`, no toggle or filter that reveals excluded ones), a Live/VOD switch (VOD = movies + series), category (group) selection and search, with a minimal mobile-first header. Configuration and viewing needs differ (excluded rows and edit actions are noise when watching), and a separate route is bookmarkable on a phone.
-- Play **in the browser with mpegts.js** (transmuxes MPEG-TS to fMP4 into MSE/ManagedMediaSource) rather than server-side ffmpeg → HLS: no server CPU, no new process lifecycle or image size, ~1–2 s latency. Low-latency live config (worker, no stash buffer, latency chasing, source buffer cleanup).
+- Play **in the browser with mpegts.js** (transmuxes MPEG-TS to fMP4 into MSE/ManagedMediaSource) rather than server-side ffmpeg → HLS: no server CPU, no new process lifecycle or image size, ~10 s behind live with the buffered player settings (see ADR-016).
 - Always offer **external players**: VLC deep links on iOS (`vlc-x-callback://x-callback-url/stream?url=`, `vlc://`) and Android (intent with `package=org.videolan.vlc` + Play Store fallback, and a chooser intent without package), a one-channel `.m3u` download (desktop VLC registers no URL scheme) and copy URL.
 - The Channels tab play action opens the same player sheet (native `<a href>` kept for middle-click).
 
