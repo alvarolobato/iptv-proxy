@@ -23,6 +23,7 @@
 package server
 
 import (
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -310,9 +311,9 @@ func TestHLS_KeepsProviderErrorStatus(t *testing.T) {
 	}
 }
 
-// TestUpstream_TotalBudgetCapsRetries verifies retries stop once the time budget is spent, so many retries can't
-// add up to a longer wait than before.
-func TestUpstream_TotalBudgetCapsRetries(t *testing.T) {
+// TestUpstream_AttemptsBoundTotalWait verifies the configured attempt count and the per-attempt cap together
+// bound the total wait: a silent server can't stretch it further.
+func TestUpstream_AttemptsBoundTotalWait(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	silent, err := net.Listen("tcp", "127.0.0.1:0")
@@ -329,8 +330,8 @@ func TestUpstream_TotalBudgetCapsRetries(t *testing.T) {
 	defer provider.Close()
 
 	c := newXtreamM3UConfig(t, provider.URL, provider.URL+"/live/xu/xp/123.ts")
-	c.UpstreamConnectTimeout = 100 * time.Millisecond
-	c.UpstreamRetries = 20 // budget, not this count, must end it
+	c.UpstreamConnectTimeout = 150 * time.Millisecond
+	c.UpstreamRetries = 3
 	proxy := newUpstreamTestProxy(t, c)
 
 	start := time.Now()
@@ -344,11 +345,11 @@ func TestUpstream_TotalBudgetCapsRetries(t *testing.T) {
 	if resp.StatusCode != http.StatusGatewayTimeout {
 		t.Errorf("status = %d, want 504", resp.StatusCode)
 	}
-	if budget := c.upstreamBudget(); elapsed > budget+2*time.Second {
-		t.Errorf("took %v, want within budget %v (+slack)", elapsed, budget)
+	if got := atomic.LoadInt32(&hits); got != 4 {
+		t.Errorf("provider requests = %d, want 4 (1 + 3 retries)", got)
 	}
-	if got := atomic.LoadInt32(&hits); got >= 21 {
-		t.Errorf("provider requests = %d, want fewer than the 21 configured attempts", got)
+	if worst := c.upstreamWorstCase(); elapsed > worst+3*time.Second {
+		t.Errorf("took %v, want within the worst case %v (+slack)", elapsed, worst)
 	}
 }
 
@@ -402,8 +403,8 @@ func TestUpstream_PerAttemptCapIsEnforced(t *testing.T) {
 	if got := atomic.LoadInt32(&hits); got != 2 {
 		t.Errorf("provider requests = %d, want 2 (capped attempt is retried)", got)
 	}
-	if budget := c.upstreamBudget(); elapsed > budget+2*time.Second {
-		t.Errorf("took %v, want within budget %v (+slack)", elapsed, budget)
+	if worst := c.upstreamWorstCase(); elapsed > worst+2*time.Second {
+		t.Errorf("took %v, want within the worst case %v (+slack)", elapsed, worst)
 	}
 }
 
@@ -433,19 +434,116 @@ func TestHLS_DoesNotCacheDeadStreamServer(t *testing.T) {
 	c.UpstreamRetries = 1
 	proxy := newUpstreamTestProxy(t, c)
 
+	start := time.Now()
 	resp, err := http.Get(proxy.URL + "/play/u/p/777.m3u8")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
 	resp.Body.Close()
+	elapsed := time.Since(start)
 
 	if resp.StatusCode == http.StatusOK {
 		t.Fatalf("status = 200, want a gateway error")
+	}
+	// Each of a flow attempt's two requests is capped, so the attempt count bounds a failing flow too.
+	if worst := c.upstreamFlowWorstCase(); elapsed > worst+2*time.Second {
+		t.Errorf("failing flow took %v, want within the worst case %v (+slack)", elapsed, worst)
 	}
 	hlsChannelsRedirectURLLock.RLock()
 	cached, ok := hlsChannelsRedirectURL["777.m3u8"]
 	hlsChannelsRedirectURLLock.RUnlock()
 	if ok {
 		t.Errorf("dead stream server cached for later chunks: %v", cached.Host)
+	}
+}
+
+// TestUpstream_CumulativeCapFires verifies the per-attempt cap ends an attempt whose individual hops each answer
+// within the header timeout but together exceed the cap.
+func TestUpstream_CumulativeCapFires(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var hits int32
+	var chain *httptest.Server
+	chain = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hop := r.URL.Query().Get("hop")
+		time.Sleep(200 * time.Millisecond) // under the 300ms header timeout, four of them exceed the 600ms cap
+		switch hop {
+		case "", "1":
+			atomic.AddInt32(&hits, 1)
+			http.Redirect(w, r, chain.URL+"/x?hop=2", http.StatusFound)
+		case "2":
+			http.Redirect(w, r, chain.URL+"/x?hop=3", http.StatusFound)
+		case "3":
+			http.Redirect(w, r, chain.URL+"/x?hop=4", http.StatusFound)
+		default:
+			w.Header().Set("Content-Type", "video/mp2t")
+			w.Write([]byte("ts")) // nolint: errcheck
+		}
+	}))
+	defer chain.Close()
+
+	c := newXtreamM3UConfig(t, chain.URL, chain.URL+"/live/xu/xp/123.ts")
+	c.UpstreamConnectTimeout = 300 * time.Millisecond // header timeout 300ms, attempt cap 600ms
+	c.UpstreamRetries = 1
+	proxy := newUpstreamTestProxy(t, c)
+
+	resp, err := http.Get(proxy.URL + "/live/u/p/123.ts")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Errorf("status = %d, want 504 (cumulative cap)", resp.StatusCode)
+	}
+	if got := atomic.LoadInt32(&hits); got != 2 {
+		t.Errorf("provider requests = %d, want 2 (capped attempt retried)", got)
+	}
+}
+
+// TestHLS_RewritesCredentialsForGzipClient verifies a client asking for gzip still gets a rewritten manifest:
+// forwarding its Accept-Encoding would hand the provider's compressed manifest through with credentials intact.
+func TestHLS_RewritesCredentialsForGzipClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	const manifestBody = "#EXTM3U\n/hlsr/tok/xu/xp/123/1/seg.ts\n"
+	manifest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			w.Header().Set("Content-Encoding", "gzip")
+			gz := gzip.NewWriter(w)
+			gz.Write([]byte(manifestBody)) // nolint: errcheck
+			gz.Close()
+			return
+		}
+		w.Write([]byte(manifestBody)) // nolint: errcheck
+	}))
+	defer manifest.Close()
+
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, manifest.URL+"/hls/tok/123.m3u8", http.StatusFound)
+	}))
+	defer provider.Close()
+
+	c := newXtreamM3UConfig(t, provider.URL, provider.URL+"/play/xu/xp/123.m3u8")
+	proxy := newUpstreamTestProxy(t, c)
+
+	req, err := http.NewRequest(http.MethodGet, proxy.URL+"/play/u/p/123.m3u8", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Accept-Encoding", "gzip") // disables Go's transparent decompression on the client side
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if strings.Contains(string(body), "/xu/xp/") {
+		t.Errorf("provider credentials reached the client: %q", body)
+	}
+	if !strings.Contains(string(body), "/hlsr/tok/u/p/123/1/seg.ts") {
+		t.Errorf("manifest not rewritten: %q", body)
 	}
 }

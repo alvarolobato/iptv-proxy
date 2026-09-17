@@ -557,12 +557,15 @@ func (c *Config) hlsXtreamStream(ctx *gin.Context, oriURL *url.URL) {
 // hlsXtreamAttempt runs one HLS flow: ask the provider, follow its redirect to the stream server, rewrite the
 // manifest. It reports whether the client response was written; if not, the error decides whether to retry.
 func (c *Config) hlsXtreamAttempt(ctx *gin.Context, client *http.Client, oriURL *url.URL) (bool, error) {
-	resp, err := c.doAttempt(ctx, client, func(reqCtx context.Context) (*http.Request, error) {
+	resp, err := c.doAttemptWithTimeout(ctx, client, c.upstreamFlowRequestTimeout(), func(reqCtx context.Context) (*http.Request, error) {
 		req, err := http.NewRequestWithContext(reqCtx, "GET", oriURL.String(), nil)
 		if err != nil {
 			return nil, err
 		}
 		mergeHttpHeader(req.Header, ctx.Request.Header)
+		// Let Go negotiate compression: forwarding a client's Accept-Encoding would pass the provider's gzipped
+		// manifest through untouched, so the credential rewrite below would silently do nothing.
+		req.Header.Del("Accept-Encoding")
 		return req, nil
 	})
 	if err != nil {
@@ -586,12 +589,13 @@ func (c *Config) hlsXtreamAttempt(ctx *gin.Context, client *http.Client, oriURL 
 		return true, nil
 	}
 
-	hlsResp, err := c.doAttempt(ctx, client, func(reqCtx context.Context) (*http.Request, error) {
+	hlsResp, err := c.doAttemptWithTimeout(ctx, client, c.upstreamFlowRequestTimeout(), func(reqCtx context.Context) (*http.Request, error) {
 		hlsReq, err := http.NewRequestWithContext(reqCtx, "GET", location.String(), nil)
 		if err != nil {
 			return nil, err
 		}
 		mergeHttpHeader(hlsReq.Header, ctx.Request.Header)
+		hlsReq.Header.Del("Accept-Encoding")
 		return hlsReq, nil
 	})
 	if err != nil {
@@ -616,6 +620,8 @@ func (c *Config) hlsXtreamAttempt(ctx *gin.Context, client *http.Client, oriURL 
 	}
 
 	mergeHttpHeader(ctx.Writer.Header(), hlsResp.Header)
+	// The client gets the decompressed, rewritten body.
+	ctx.Writer.Header().Del("Content-Encoding")
 	// Rewriting credentials changes the body length, so the provider's Content-Length would truncate the manifest.
 	ctx.Writer.Header().Del("Content-Length")
 	// Keep the provider status: an error manifest (403/404) must not reach the player as 200.

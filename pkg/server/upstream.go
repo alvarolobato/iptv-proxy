@@ -43,7 +43,17 @@ import (
 const (
 	defaultUpstreamConnectTimeout = 8 * time.Second
 	upstreamRetryBackoff          = 300 * time.Millisecond
+	maxUpstreamRetryBackoff       = 2 * time.Second
 )
+
+// upstreamBackoff waits a little longer after each failure, but never long enough for a generous retry count to
+// stretch the total wait.
+func upstreamBackoff(attempt int) time.Duration {
+	if d := time.Duration(attempt) * upstreamRetryBackoff; d < maxUpstreamRetryBackoff {
+		return d
+	}
+	return maxUpstreamRetryBackoff
+}
 
 // upstreamTransports caches one transport per connect timeout so connections are pooled across requests.
 var upstreamTransports sync.Map // time.Duration -> *http.Transport
@@ -99,10 +109,37 @@ func (c *Config) upstreamAttemptTimeout() time.Duration {
 	return 2 * c.upstreamConnectTimeout()
 }
 
-// upstreamBudget bounds the total time spent on a request and its retries: attempts x the per-attempt cap.
-// Retries only start while the remaining budget still covers a full attempt, so the total can't drift past it.
-func (c *Config) upstreamBudget() time.Duration {
-	return time.Duration(c.upstreamAttempts()) * c.upstreamAttemptTimeout()
+// upstreamFlowRequestTimeout caps one request inside a multi-step flow (HLS). Manifests are small, so a flow's
+// two requests together stay within the same budget as one stream attempt.
+func (c *Config) upstreamFlowRequestTimeout() time.Duration {
+	return c.upstreamConnectTimeout()
+}
+
+// upstreamFlowAttemptCost is the worst case for one flow attempt: both of its capped requests.
+func (c *Config) upstreamFlowAttemptCost() time.Duration {
+	return 2 * c.upstreamFlowRequestTimeout()
+}
+
+// upstreamFlowWorstCase is the longest a flow and its retries can take: every attempt spending its whole cap,
+// plus the backoffs in between.
+func (c *Config) upstreamFlowWorstCase() time.Duration {
+	return c.worstCase(c.upstreamFlowAttemptCost())
+}
+
+// upstreamWorstCase is the longest a request and its retries can take: every attempt spending its whole cap,
+// plus the backoffs in between. Each attempt is hard-capped, so the count of attempts bounds the total; there is
+// no separate deadline to trip over.
+func (c *Config) upstreamWorstCase() time.Duration {
+	return c.worstCase(c.upstreamAttemptTimeout())
+}
+
+func (c *Config) worstCase(attemptCost time.Duration) time.Duration {
+	attempts := c.upstreamAttempts()
+	total := time.Duration(attempts) * attemptCost
+	for i := 1; i < attempts; i++ {
+		total += upstreamBackoff(i)
+	}
+	return total
 }
 
 // cancelOnCloseBody keeps an attempt's context alive while the response body is streaming and releases it on Close.
@@ -120,9 +157,14 @@ func (b *cancelOnCloseBody) Close() error {
 // doAttempt sends one provider request with a hard cap on dial + response headers. The cap is released once the
 // headers arrive, so the body can stream for as long as the client keeps reading.
 func (c *Config) doAttempt(ctx *gin.Context, client *http.Client, newReq func(context.Context) (*http.Request, error)) (*http.Response, error) {
+	return c.doAttemptWithTimeout(ctx, client, c.upstreamAttemptTimeout(), newReq)
+}
+
+// doAttemptWithTimeout is doAttempt with an explicit cap, for flows whose attempt spans several requests.
+func (c *Config) doAttemptWithTimeout(ctx *gin.Context, client *http.Client, timeout time.Duration, newReq func(context.Context) (*http.Request, error)) (*http.Response, error) {
 	attemptCtx, cancel := context.WithCancel(ctx.Request.Context())
 	var capped atomic.Bool
-	timer := time.AfterFunc(c.upstreamAttemptTimeout(), func() {
+	timer := time.AfterFunc(timeout, func() {
 		capped.Store(true)
 		cancel()
 	})
@@ -143,8 +185,9 @@ func (c *Config) doAttempt(ctx *gin.Context, client *http.Client, newReq func(co
 		}
 		return nil, err
 	}
-	if !stopped && capped.Load() {
-		// The cap fired just as the headers arrived.
+	if !stopped {
+		// Stop() reporting false means the cap's cancel() is already scheduled or running, so this response's
+		// context is about to die: never hand back a body that would be cut off microseconds later.
 		resp.Body.Close()
 		cancel()
 		return nil, &url.Error{Op: "Get", URL: req.URL.String(), Err: attemptTimeoutError{}}
@@ -166,9 +209,6 @@ func (attemptTimeoutError) Temporary() bool { return true }
 // safe. Requests are bound to the client request's context and stop when the client goes away.
 func (c *Config) doUpstream(ctx *gin.Context, client *http.Client, newReq func(context.Context) (*http.Request, error)) (*http.Response, error) {
 	attempts := c.upstreamAttempts()
-	budget := c.upstreamBudget()
-	perAttempt := c.upstreamAttemptTimeout()
-	start := time.Now()
 	reqCtx := ctx.Request.Context()
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
@@ -177,15 +217,14 @@ func (c *Config) doUpstream(ctx *gin.Context, client *http.Client, newReq func(c
 			return resp, nil
 		}
 		lastErr = err
-		// Only start another attempt while the remaining budget still covers a whole one.
-		if reqCtx.Err() != nil || !isRetryableUpstreamError(err) || attempt == attempts || budget-time.Since(start) < perAttempt {
+		if reqCtx.Err() != nil || !isRetryableUpstreamError(err) || attempt == attempts {
 			break
 		}
 		log.Printf("[iptv-proxy] upstream attempt %d/%d failed (%s); retrying", attempt, attempts, upstreamErrorReason(err))
 		select {
 		case <-reqCtx.Done():
 			return nil, reqCtx.Err()
-		case <-time.After(time.Duration(attempt) * upstreamRetryBackoff):
+		case <-time.After(upstreamBackoff(attempt)):
 		}
 	}
 	return nil, lastErr
@@ -196,9 +235,6 @@ func (c *Config) doUpstream(ctx *gin.Context, client *http.Client, newReq func(c
 // reports whether it wrote the response, and otherwise the error that decides whether the flow is retried.
 func (c *Config) retryUpstreamFlow(ctx *gin.Context, attempt func() (bool, error)) {
 	attempts := c.upstreamAttempts()
-	budget := c.upstreamBudget()
-	perAttempt := c.upstreamAttemptTimeout()
-	start := time.Now()
 	reqCtx := ctx.Request.Context()
 	var lastErr error
 	for i := 1; i <= attempts; i++ {
@@ -207,8 +243,7 @@ func (c *Config) retryUpstreamFlow(ctx *gin.Context, attempt func() (bool, error
 			return
 		}
 		lastErr = err
-		// Only start another attempt while the remaining budget still covers a whole one.
-		if reqCtx.Err() != nil || !isRetryableUpstreamError(err) || i == attempts || budget-time.Since(start) < perAttempt {
+		if reqCtx.Err() != nil || !isRetryableUpstreamError(err) || i == attempts {
 			break
 		}
 		log.Printf("[iptv-proxy] upstream flow attempt %d/%d failed (%s); retrying", i, attempts, upstreamErrorReason(err))
@@ -216,7 +251,7 @@ func (c *Config) retryUpstreamFlow(ctx *gin.Context, attempt func() (bool, error
 		case <-reqCtx.Done():
 			abortUpstream(ctx, reqCtx.Err())
 			return
-		case <-time.After(time.Duration(i) * upstreamRetryBackoff):
+		case <-time.After(upstreamBackoff(i)):
 		}
 	}
 	if lastErr == nil {
