@@ -230,11 +230,15 @@ test.describe('TV view', () => {
   test('keeps the buffered player configuration', async ({ page }) => {
     await blockStreams(page);
     await page.goto('/tv');
-    const cfg = await page.evaluate(() => window.__mpegtsConfig);
+    // Object.isFrozen must run in the page: Playwright serialises the value, so a copy would never look frozen.
+    const { cfg, frozen } = await page.evaluate(() => ({ cfg: window.__mpegtsConfig, frozen: Object.isFrozen(window.__mpegtsConfig) }));
     expect(cfg, 'player config must be exposed for this guard').toBeTruthy();
+    expect(frozen, 'exposed config must be immutable').toBe(true);
     expect(cfg).toMatchObject({
       enableStashBuffer: true,
       liveBufferLatencyChasing: true,
+      // Off by default in mpegts.js: without it the buffer grows unbounded while the viewer pauses live TV.
+      liveBufferLatencyChasingOnPaused: true,
       liveBufferLatencyMaxLatency: 10,
       liveBufferLatencyMinRemain: 4,
       autoCleanupSourceBuffer: true,

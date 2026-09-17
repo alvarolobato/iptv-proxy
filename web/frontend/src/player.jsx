@@ -35,6 +35,9 @@ export const MPEGTS_CONFIG = {
   stashInitialSize: 1024 * 1024,
   lazyLoad: false,
   liveBufferLatencyChasing: true,
+  // Also while paused: mpegts.js keeps loading when paused but only trims behind the playhead, so without this
+  // the forward buffer grows until the SourceBuffer is full and live playback can never resume.
+  liveBufferLatencyChasingOnPaused: true,
   liveBufferLatencyMaxLatency: 10,
   liveBufferLatencyMinRemain: 4,
   autoCleanupSourceBuffer: true,
@@ -45,7 +48,8 @@ export const MPEGTS_CONFIG = {
 // Exposed so an e2e test can assert these settings survive refactors (e2e blocks real streams, so playback
 // itself can't guard them).
 if (typeof window !== 'undefined') {
-  window.__mpegtsConfig = MPEGTS_CONFIG;
+  // A frozen copy: the object handed to mpegts.js must stay private so nothing can change playback behaviour.
+  window.__mpegtsConfig = Object.freeze({ ...MPEGTS_CONFIG });
 }
 
 // If nothing plays after this long (channel offline, provider connection limit, unsupported codec),
@@ -141,7 +145,8 @@ function InBrowserPlayer({ url, kind, focusOnMount = false }) {
         lastProgressAt = Date.now();
         return;
       }
-      if (video.currentTime > lastTime + 0.05) {
+      // Any movement counts, including a backward seek into the buffer, which is healthy playback.
+      if (Math.abs(video.currentTime - lastTime) > 0.05) {
         lastTime = video.currentTime;
         lastProgressAt = Date.now();
         return;
