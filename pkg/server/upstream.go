@@ -26,12 +26,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -58,7 +60,7 @@ func upstreamTransport(connectTimeout time.Duration) *http.Transport {
 	t.DialContext = (&net.Dialer{Timeout: connectTimeout, KeepAlive: 30 * time.Second}).DialContext
 	t.TLSHandshakeTimeout = connectTimeout
 	// Once connected, stream servers answer within a second or two; a silent server is treated like an unreachable one.
-	t.ResponseHeaderTimeout = 2 * connectTimeout
+	t.ResponseHeaderTimeout = connectTimeout
 	actual, _ := upstreamTransports.LoadOrStore(connectTimeout, t)
 	return actual.(*http.Transport)
 }
@@ -82,26 +84,81 @@ func (c *Config) upstreamAttempts() int {
 	return 1
 }
 
-// upstreamBudget bounds the total time spent on a request and its retries, so a sequence of slow attempts can't
-// take longer than a single un-bounded attempt used to. One attempt costs at most a dial plus a header wait on
-// each of the provider and stream-server hops.
-func (c *Config) upstreamBudget() time.Duration {
-	connect := c.UpstreamConnectTimeout
-	if connect <= 0 {
-		connect = defaultUpstreamConnectTimeout
+// upstreamConnectTimeout is the configured connect timeout, or the default when unset.
+func (c *Config) upstreamConnectTimeout() time.Duration {
+	if c.UpstreamConnectTimeout > 0 {
+		return c.UpstreamConnectTimeout
 	}
-	return time.Duration(c.upstreamAttempts()) * 2 * connect
+	return defaultUpstreamConnectTimeout
 }
 
-// doUpstreamOnce sends a single provider request bound to the client request context, with no retry. Callers that
-// retry a multi-step flow (HLS: provider redirect, then manifest) use this so a retry restarts the whole flow.
-func (c *Config) doUpstreamOnce(ctx *gin.Context, client *http.Client, newReq func(context.Context) (*http.Request, error)) (*http.Response, error) {
-	req, err := newReq(ctx.Request.Context())
+// upstreamAttemptTimeout hard-caps one attempt (dial plus response headers, across any provider redirect).
+// It is enforced with a cancellable context that lives until the response body is closed, so a streaming body is
+// never cut off mid-playback.
+func (c *Config) upstreamAttemptTimeout() time.Duration {
+	return 2 * c.upstreamConnectTimeout()
+}
+
+// upstreamBudget bounds the total time spent on a request and its retries: attempts x the per-attempt cap.
+// Retries only start while the remaining budget still covers a full attempt, so the total can't drift past it.
+func (c *Config) upstreamBudget() time.Duration {
+	return time.Duration(c.upstreamAttempts()) * c.upstreamAttemptTimeout()
+}
+
+// cancelOnCloseBody keeps an attempt's context alive while the response body is streaming and releases it on Close.
+type cancelOnCloseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *cancelOnCloseBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
+}
+
+// doAttempt sends one provider request with a hard cap on dial + response headers. The cap is released once the
+// headers arrive, so the body can stream for as long as the client keeps reading.
+func (c *Config) doAttempt(ctx *gin.Context, client *http.Client, newReq func(context.Context) (*http.Request, error)) (*http.Response, error) {
+	attemptCtx, cancel := context.WithCancel(ctx.Request.Context())
+	var capped atomic.Bool
+	timer := time.AfterFunc(c.upstreamAttemptTimeout(), func() {
+		capped.Store(true)
+		cancel()
+	})
+	req, err := newReq(attemptCtx)
 	if err != nil {
+		timer.Stop()
+		cancel()
 		return nil, err
 	}
-	return client.Do(req)
+	resp, err := client.Do(req)
+	stopped := timer.Stop()
+	if err != nil {
+		cancel()
+		// Cancelling for the cap looks like a client disconnect; report it as the timeout it is, so it is retried
+		// and surfaces as 504 rather than 502.
+		if capped.Load() {
+			return nil, &url.Error{Op: "Get", URL: req.URL.String(), Err: attemptTimeoutError{}}
+		}
+		return nil, err
+	}
+	if !stopped && capped.Load() {
+		// The cap fired just as the headers arrived.
+		resp.Body.Close()
+		cancel()
+		return nil, &url.Error{Op: "Get", URL: req.URL.String(), Err: attemptTimeoutError{}}
+	}
+	resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel}
+	return resp, nil
 }
+
+// attemptTimeoutError marks the per-attempt cap so it is classified as a retryable timeout.
+type attemptTimeoutError struct{}
+
+func (attemptTimeoutError) Error() string   { return "upstream attempt timeout" }
+func (attemptTimeoutError) Timeout() bool   { return true }
+func (attemptTimeoutError) Temporary() bool { return true }
 
 // doUpstream sends a provider request, retrying when the upstream (typically the stream server the provider
 // redirects to) can't be reached or doesn't answer. Each attempt builds a fresh request for the original URL, so
@@ -110,20 +167,18 @@ func (c *Config) doUpstreamOnce(ctx *gin.Context, client *http.Client, newReq fu
 func (c *Config) doUpstream(ctx *gin.Context, client *http.Client, newReq func(context.Context) (*http.Request, error)) (*http.Response, error) {
 	attempts := c.upstreamAttempts()
 	budget := c.upstreamBudget()
+	perAttempt := c.upstreamAttemptTimeout()
 	start := time.Now()
 	reqCtx := ctx.Request.Context()
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
-		req, err := newReq(reqCtx)
-		if err != nil {
-			return nil, err
-		}
-		resp, err := client.Do(req)
+		resp, err := c.doAttempt(ctx, client, newReq)
 		if err == nil {
 			return resp, nil
 		}
 		lastErr = err
-		if reqCtx.Err() != nil || !isRetryableUpstreamError(err) || attempt == attempts || time.Since(start) >= budget {
+		// Only start another attempt while the remaining budget still covers a whole one.
+		if reqCtx.Err() != nil || !isRetryableUpstreamError(err) || attempt == attempts || budget-time.Since(start) < perAttempt {
 			break
 		}
 		log.Printf("[iptv-proxy] upstream attempt %d/%d failed (%s); retrying", attempt, attempts, upstreamErrorReason(err))
@@ -142,6 +197,7 @@ func (c *Config) doUpstream(ctx *gin.Context, client *http.Client, newReq func(c
 func (c *Config) retryUpstreamFlow(ctx *gin.Context, attempt func() (bool, error)) {
 	attempts := c.upstreamAttempts()
 	budget := c.upstreamBudget()
+	perAttempt := c.upstreamAttemptTimeout()
 	start := time.Now()
 	reqCtx := ctx.Request.Context()
 	var lastErr error
@@ -151,7 +207,8 @@ func (c *Config) retryUpstreamFlow(ctx *gin.Context, attempt func() (bool, error
 			return
 		}
 		lastErr = err
-		if reqCtx.Err() != nil || !isRetryableUpstreamError(err) || i == attempts || time.Since(start) >= budget {
+		// Only start another attempt while the remaining budget still covers a whole one.
+		if reqCtx.Err() != nil || !isRetryableUpstreamError(err) || i == attempts || budget-time.Since(start) < perAttempt {
 			break
 		}
 		log.Printf("[iptv-proxy] upstream flow attempt %d/%d failed (%s); retrying", i, attempts, upstreamErrorReason(err))
@@ -171,7 +228,9 @@ func (c *Config) retryUpstreamFlow(ctx *gin.Context, attempt func() (bool, error
 // credentialParamRE matches credential query parameters in free-form messages.
 var credentialParamRE = regexp.MustCompile(`(?i)\b(username|password|token)=[^&\s"']+`)
 
-// redactCredentials masks credentials in a message. Errors from the vendored Xtream client embed the request URL
+// redactCredentials masks credential query parameters (username/password/token) in a message. It is enough for
+// its call site (errors from the vendored Xtream client, which are query-style); path-style credentials are
+// handled by upstreamErrorReason, which drops the path entirely. Errors from the vendored Xtream client embed the request URL
 // with username/password and are formatted with %v, so they can't be unwrapped and sanitised structurally.
 func redactCredentials(s string) string {
 	return credentialParamRE.ReplaceAllString(s, "$1=<redacted>")

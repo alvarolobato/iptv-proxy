@@ -258,13 +258,18 @@ func TestHLS_RetriesWholeRedirectFlow(t *testing.T) {
 		t.Fatalf("GET: %v", err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, readErr := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %q)", resp.StatusCode, body)
 	}
-	if !strings.Contains(string(body), "/hlsr/tok/u/p/123/1/seg.ts") {
-		t.Errorf("manifest credentials not rewritten: %q", body)
+	// Exact body and a clean read: rewriting credentials changes the length, so a copied Content-Length would
+	// truncate the manifest and players would see an unexpected EOF.
+	if readErr != nil {
+		t.Errorf("reading manifest: %v (Content-Length %q)", readErr, resp.Header.Get("Content-Length"))
+	}
+	if want := "#EXTM3U\n/hlsr/tok/u/p/123/1/seg.ts\n"; string(body) != want {
+		t.Errorf("manifest = %q, want %q", body, want)
 	}
 	if got := atomic.LoadInt32(&hits); got != 2 {
 		t.Errorf("provider requests = %d, want 2 (retry re-asks the provider for a stream server)", got)
@@ -339,7 +344,7 @@ func TestUpstream_TotalBudgetCapsRetries(t *testing.T) {
 	if resp.StatusCode != http.StatusGatewayTimeout {
 		t.Errorf("status = %d, want 504", resp.StatusCode)
 	}
-	if budget := c.upstreamBudget(); elapsed > budget+3*time.Second {
+	if budget := c.upstreamBudget(); elapsed > budget+2*time.Second {
 		t.Errorf("took %v, want within budget %v (+slack)", elapsed, budget)
 	}
 	if got := atomic.LoadInt32(&hits); got >= 21 {
@@ -355,5 +360,92 @@ func TestRedactCredentials(t *testing.T) {
 	}
 	if !strings.Contains(got, "prov:80") || !strings.Contains(got, "i/o timeout") {
 		t.Errorf("redaction removed useful context: %q", got)
+	}
+}
+
+// TestUpstream_PerAttemptCapIsEnforced verifies a stream server that accepts the connection but delays its
+// response headers past the per-attempt cap is cut off, retried and reported as 504 (not as a client disconnect).
+func TestUpstream_PerAttemptCapIsEnforced(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(10 * time.Second):
+		}
+	}))
+	defer slow.Close()
+
+	var hits int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		http.Redirect(w, r, slow.URL+r.URL.Path, http.StatusFound)
+	}))
+	defer provider.Close()
+
+	c := newXtreamM3UConfig(t, provider.URL, provider.URL+"/live/xu/xp/123.ts")
+	c.UpstreamConnectTimeout = 200 * time.Millisecond
+	c.UpstreamRetries = 1
+	proxy := newUpstreamTestProxy(t, c)
+
+	start := time.Now()
+	resp, err := http.Get(proxy.URL + "/live/u/p/123.ts")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	resp.Body.Close()
+	elapsed := time.Since(start)
+
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Errorf("status = %d, want 504", resp.StatusCode)
+	}
+	if got := atomic.LoadInt32(&hits); got != 2 {
+		t.Errorf("provider requests = %d, want 2 (capped attempt is retried)", got)
+	}
+	if budget := c.upstreamBudget(); elapsed > budget+2*time.Second {
+		t.Errorf("took %v, want within budget %v (+slack)", elapsed, budget)
+	}
+}
+
+// TestHLS_DoesNotCacheDeadStreamServer verifies a stream server that never served the manifest is not remembered
+// for later /hls chunk requests.
+func TestHLS_DoesNotCacheDeadStreamServer(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	dead, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	deadAddr := dead.Addr().String()
+	dead.Close()
+
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://"+deadAddr+"/hls/tok/777.m3u8", http.StatusFound)
+	}))
+	defer provider.Close()
+
+	hlsChannelsRedirectURLLock.Lock()
+	delete(hlsChannelsRedirectURL, "777.m3u8")
+	hlsChannelsRedirectURLLock.Unlock()
+
+	c := newXtreamM3UConfig(t, provider.URL, provider.URL+"/play/xu/xp/777.m3u8")
+	c.UpstreamConnectTimeout = 300 * time.Millisecond
+	c.UpstreamRetries = 1
+	proxy := newUpstreamTestProxy(t, c)
+
+	resp, err := http.Get(proxy.URL + "/play/u/p/777.m3u8")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("status = 200, want a gateway error")
+	}
+	hlsChannelsRedirectURLLock.RLock()
+	cached, ok := hlsChannelsRedirectURL["777.m3u8"]
+	hlsChannelsRedirectURLLock.RUnlock()
+	if ok {
+		t.Errorf("dead stream server cached for later chunks: %v", cached.Host)
 	}
 }

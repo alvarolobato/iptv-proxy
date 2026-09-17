@@ -557,7 +557,7 @@ func (c *Config) hlsXtreamStream(ctx *gin.Context, oriURL *url.URL) {
 // hlsXtreamAttempt runs one HLS flow: ask the provider, follow its redirect to the stream server, rewrite the
 // manifest. It reports whether the client response was written; if not, the error decides whether to retry.
 func (c *Config) hlsXtreamAttempt(ctx *gin.Context, client *http.Client, oriURL *url.URL) (bool, error) {
-	resp, err := c.doUpstreamOnce(ctx, client, func(reqCtx context.Context) (*http.Request, error) {
+	resp, err := c.doAttempt(ctx, client, func(reqCtx context.Context) (*http.Request, error) {
 		req, err := http.NewRequestWithContext(reqCtx, "GET", oriURL.String(), nil)
 		if err != nil {
 			return nil, err
@@ -586,11 +586,7 @@ func (c *Config) hlsXtreamAttempt(ctx *gin.Context, client *http.Client, oriURL 
 		return true, nil
 	}
 
-	hlsChannelsRedirectURLLock.Lock()
-	hlsChannelsRedirectURL[id] = *location
-	hlsChannelsRedirectURLLock.Unlock()
-
-	hlsResp, err := c.doUpstreamOnce(ctx, client, func(reqCtx context.Context) (*http.Request, error) {
+	hlsResp, err := c.doAttempt(ctx, client, func(reqCtx context.Context) (*http.Request, error) {
 		hlsReq, err := http.NewRequestWithContext(reqCtx, "GET", location.String(), nil)
 		if err != nil {
 			return nil, err
@@ -607,6 +603,11 @@ func (c *Config) hlsXtreamAttempt(ctx *gin.Context, client *http.Client, oriURL 
 	if err != nil {
 		return false, err
 	}
+	// Only remember the stream server once it actually served the manifest: caching a dead host here would send
+	// every later /hls chunk request to it with no way to re-resolve.
+	hlsChannelsRedirectURLLock.Lock()
+	hlsChannelsRedirectURL[id] = *location
+	hlsChannelsRedirectURLLock.Unlock()
 	// Providers may write credentials raw or escaped; swap them per playlist line so they never reach the client.
 	lines := strings.Split(string(b), "\n")
 	for i, line := range lines {
@@ -615,6 +616,8 @@ func (c *Config) hlsXtreamAttempt(ctx *gin.Context, client *http.Client, oriURL 
 	}
 
 	mergeHttpHeader(ctx.Writer.Header(), hlsResp.Header)
+	// Rewriting credentials changes the body length, so the provider's Content-Length would truncate the manifest.
+	ctx.Writer.Header().Del("Content-Length")
 	// Keep the provider status: an error manifest (403/404) must not reach the player as 200.
 	ctx.Data(hlsResp.StatusCode, hlsResp.Header.Get("Content-Type"), []byte(strings.Join(lines, "\n")))
 	return true, nil
