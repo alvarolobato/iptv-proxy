@@ -86,12 +86,20 @@ func (c *Config) upstreamClient(followRedirects bool) *http.Client {
 	return client
 }
 
-// upstreamAttempts is how many times a provider request may be tried (1 + configured retries).
+// maxUpstreamAttempts clamps the configured retries: each attempt holds the client connection, so an extreme
+// value would leave a player waiting for many minutes.
+const maxUpstreamAttempts = 10
+
+// upstreamAttempts is how many times a provider request may be tried (1 + configured retries, clamped).
 func (c *Config) upstreamAttempts() int {
-	if attempts := 1 + c.UpstreamRetries; attempts > 1 {
-		return attempts
+	attempts := 1 + c.UpstreamRetries
+	if attempts < 1 {
+		return 1
 	}
-	return 1
+	if attempts > maxUpstreamAttempts {
+		return maxUpstreamAttempts
+	}
+	return attempts
 }
 
 // upstreamConnectTimeout is the configured connect timeout, or the default when unset.

@@ -46,6 +46,9 @@ type cacheMeta struct {
 	time.Time
 }
 
+// maxManifestRedirects bounds how many hops a stream server may bounce an HLS manifest through.
+const maxManifestRedirects = 2
+
 var hlsChannelsRedirectURL map[string]url.URL = map[string]url.URL{}
 var hlsChannelsRedirectURLLock = sync.RWMutex{}
 
@@ -589,17 +592,36 @@ func (c *Config) hlsXtreamAttempt(ctx *gin.Context, client *http.Client, oriURL 
 		return true, nil
 	}
 
-	hlsResp, err := c.doAttemptWithTimeout(ctx, client, c.upstreamFlowRequestTimeout(), func(reqCtx context.Context) (*http.Request, error) {
-		hlsReq, err := http.NewRequestWithContext(reqCtx, "GET", location.String(), nil)
+	// Stream servers may bounce the manifest on to another edge. Follow those hops here, under the same cap:
+	// passing a 3xx to the player would hand it a Location carrying the provider's credentials and route it
+	// around the proxy.
+	manifestURL := location
+	var hlsResp *http.Response
+	for hop := 0; ; hop++ {
+		target := manifestURL
+		resp, err := c.doAttemptWithTimeout(ctx, client, c.upstreamFlowRequestTimeout(), func(reqCtx context.Context) (*http.Request, error) {
+			hlsReq, err := http.NewRequestWithContext(reqCtx, "GET", target.String(), nil)
+			if err != nil {
+				return nil, err
+			}
+			mergeHttpHeader(hlsReq.Header, ctx.Request.Header)
+			hlsReq.Header.Del("Accept-Encoding")
+			return hlsReq, nil
+		})
 		if err != nil {
-			return nil, err
+			return false, err
 		}
-		mergeHttpHeader(hlsReq.Header, ctx.Request.Header)
-		hlsReq.Header.Del("Accept-Encoding")
-		return hlsReq, nil
-	})
-	if err != nil {
-		return false, err
+		if resp.StatusCode < 300 || resp.StatusCode > 399 {
+			hlsResp = resp
+			break
+		}
+		next, locErr := resp.Location()
+		resp.Body.Close()
+		if locErr != nil || hop >= maxManifestRedirects {
+			ctx.AbortWithError(http.StatusBadGateway, errors.New("HLS manifest redirect could not be resolved")) // nolint: errcheck
+			return true, nil
+		}
+		manifestURL = next
 	}
 	defer hlsResp.Body.Close()
 
@@ -620,8 +642,13 @@ func (c *Config) hlsXtreamAttempt(ctx *gin.Context, client *http.Client, oriURL 
 	}
 
 	mergeHttpHeader(ctx.Writer.Header(), hlsResp.Header)
-	// The client gets the decompressed, rewritten body.
-	ctx.Writer.Header().Del("Content-Encoding")
+	// Never hand the player an upstream Location: it carries provider credentials and bypasses the proxy.
+	ctx.Writer.Header().Del("Location")
+	if hlsResp.Uncompressed {
+		// Go decompressed the body it gave us, so the client must not be told it is still encoded. Any other
+		// encoding (br, zstd) is passed through as-is, with its header intact.
+		ctx.Writer.Header().Del("Content-Encoding")
+	}
 	// Rewriting credentials changes the body length, so the provider's Content-Length would truncate the manifest.
 	ctx.Writer.Header().Del("Content-Length")
 	// Keep the provider status: an error manifest (403/404) must not reach the player as 200.

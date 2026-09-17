@@ -60,12 +60,12 @@ type ProxyConfig struct {
 	HTTPS                bool
 	User, Password       CredentialString
 	// M3U filter (from settings.json only) and replacement
-	GroupInclusions    []string // keep only if group-title matches any (empty = all)
-	GroupExclusions    []string // drop if group-title matches any
-	ChannelInclusions  []string // keep only if channel name matches any (empty = all)
-	ChannelExclusions  []string // drop if channel name matches any
-	DataFolder         string   // folder for settings.json and replacement rules (--data-folder)
-	DivideByRes  bool   // divide groups by resolution (FHD/HD/SD)
+	GroupInclusions   []string // keep only if group-title matches any (empty = all)
+	GroupExclusions   []string // drop if group-title matches any
+	ChannelInclusions []string // keep only if channel name matches any (empty = all)
+	ChannelExclusions []string // drop if channel name matches any
+	DataFolder        string   // folder for settings.json and replacement rules (--data-folder)
+	DivideByRes       bool     // divide groups by resolution (FHD/HD/SD)
 	// UseXtreamAdvancedParsing uses alternate parsing for some Xtream requests to preserve raw provider response (default false).
 	UseXtreamAdvancedParsing bool
 	// DebugLoggingEnabled enables verbose debug logging when true.
@@ -85,8 +85,8 @@ type ProxyConfig struct {
 	// StatsEnabled explicitly enables/disables stats (default: true when ESUrl is set).
 	StatsEnabled bool
 
-	// UpstreamConnectTimeout bounds connecting to the provider or the stream server it redirects to
-	// (0 = default 8s); response headers must arrive within twice this.
+	// UpstreamConnectTimeout bounds connecting to the provider or the stream server it redirects to, and the
+	// wait for response headers (0 = default 8s); one attempt as a whole is capped at twice this.
 	UpstreamConnectTimeout time.Duration
 	// UpstreamRetries is how many extra attempts a provider request gets when the upstream is unreachable or silent.
 	UpstreamRetries int

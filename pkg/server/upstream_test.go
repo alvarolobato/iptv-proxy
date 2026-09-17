@@ -38,6 +38,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alvarolobato/iptv-proxy/pkg/config"
 	"github.com/gin-gonic/gin"
 )
 
@@ -466,7 +467,7 @@ func TestUpstream_CumulativeCapFires(t *testing.T) {
 	var chain *httptest.Server
 	chain = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hop := r.URL.Query().Get("hop")
-		time.Sleep(200 * time.Millisecond) // under the 300ms header timeout, four of them exceed the 600ms cap
+		time.Sleep(280 * time.Millisecond) // under the 300ms header timeout, four of them far exceed the 600ms cap
 		switch hop {
 		case "", "1":
 			atomic.AddInt32(&hits, 1)
@@ -545,5 +546,61 @@ func TestHLS_RewritesCredentialsForGzipClient(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "/hlsr/tok/u/p/123/1/seg.ts") {
 		t.Errorf("manifest not rewritten: %q", body)
+	}
+}
+
+// TestHLS_FollowsManifestRedirectWithoutLeakingCredentials verifies a stream server that bounces the manifest to
+// another edge is followed inside the proxy: the player must never receive a Location carrying provider credentials.
+func TestHLS_FollowsManifestRedirectWithoutLeakingCredentials(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.Write([]byte("#EXTM3U\n/hlsr/tok/xu/xp/123/1/seg.ts\n")) // nolint: errcheck
+	}))
+	defer final.Close()
+
+	edge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, final.URL+"/hls/tok/xu/xp/123.m3u8", http.StatusFound)
+	}))
+	defer edge.Close()
+
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, edge.URL+"/hls/tok/123.m3u8", http.StatusFound)
+	}))
+	defer provider.Close()
+
+	c := newXtreamM3UConfig(t, provider.URL, provider.URL+"/play/xu/xp/123.m3u8")
+	proxy := newUpstreamTestProxy(t, c)
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Get(proxy.URL + "/play/u/p/123.m3u8")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if loc := resp.Header.Get("Location"); loc != "" {
+		t.Errorf("client got a redirect to the provider: %q", loc)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (redirect followed inside the proxy)", resp.StatusCode)
+	}
+	if strings.Contains(string(body), "/xu/xp/") {
+		t.Errorf("provider credentials reached the client: %q", body)
+	}
+	if !strings.Contains(string(body), "/hlsr/tok/u/p/123/1/seg.ts") {
+		t.Errorf("manifest not rewritten: %q", body)
+	}
+}
+
+func TestUpstreamAttempts_Clamped(t *testing.T) {
+	tests := []struct{ retries, want int }{{-5, 1}, {0, 1}, {1, 2}, {9, 10}, {1000, maxUpstreamAttempts}}
+	for _, tt := range tests {
+		c := &Config{ProxyConfig: &config.ProxyConfig{UpstreamRetries: tt.retries}}
+		if got := c.upstreamAttempts(); got != tt.want {
+			t.Errorf("retries %d: attempts = %d, want %d", tt.retries, got, tt.want)
+		}
 	}
 }
