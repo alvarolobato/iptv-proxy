@@ -56,6 +56,17 @@ if (typeof window !== 'undefined') {
 // point the viewer to the external player options.
 const STALL_TIMEOUT_MS = 15000;
 
+// Notices for playback that never started (stalled) versus playback that stopped later (frozen).
+const NOTICE_TITLES = {
+  error: 'Playback failed',
+  stalled: 'The stream is taking too long to start',
+  frozen: 'Playback stopped',
+};
+const NOTICE_BODIES = {
+  stalled: 'The channel may be offline, busy or use a format this browser cannot play.',
+  frozen: 'The stream stopped sending data.',
+};
+
 // While playing, a picture that stops advancing for this long counts as frozen.
 const FREEZE_TIMEOUT_MS = 12000;
 const FREEZE_CHECK_INTERVAL_MS = 2000;
@@ -120,7 +131,7 @@ function InBrowserPlayer({ url, kind, focusOnMount = false }) {
     if (focusOnMount) videoRef.current?.focus({ preventScroll: true });
   }, [focusOnMount]);
   const supported = useMemo(() => canPlayInBrowser(kind), [kind]);
-  const [status, setStatus] = useState('loading'); // loading | playing | paused | stalled | error
+  const [status, setStatus] = useState('loading'); // loading | playing | paused | stalled | frozen | error
   const [error, setError] = useState('');
   const [muted, setMuted] = useState(true);
   const [mediaInfo, setMediaInfo] = useState(null);
@@ -140,20 +151,32 @@ function InBrowserPlayer({ url, kind, focusOnMount = false }) {
     if (!video) return undefined;
     let lastTime = video.currentTime;
     let lastProgressAt = Date.now();
+    let missedTicks = 0;
+    // Background tabs suspend timers and the decoder, so start again from the moment the tab comes back.
+    const resetBaseline = () => {
+      lastTime = video.currentTime;
+      lastProgressAt = Date.now();
+      missedTicks = 0;
+    };
+    document.addEventListener('visibilitychange', resetBaseline);
     const timer = setInterval(() => {
-      if (video.paused) {
-        lastProgressAt = Date.now();
+      if (document.hidden || video.paused) {
+        resetBaseline();
         return;
       }
       // Any movement counts, including a backward seek into the buffer, which is healthy playback.
       if (Math.abs(video.currentTime - lastTime) > 0.05) {
-        lastTime = video.currentTime;
-        lastProgressAt = Date.now();
+        resetBaseline();
         return;
       }
-      if (Date.now() - lastProgressAt >= FREEZE_TIMEOUT_MS) setStatus('stalled');
+      missedTicks += 1;
+      // Two consecutive silent ticks, so a single suspended interval can't raise a false alarm.
+      if (missedTicks >= 2 && Date.now() - lastProgressAt >= FREEZE_TIMEOUT_MS) setStatus('frozen');
     }, FREEZE_CHECK_INTERVAL_MS);
-    return () => clearInterval(timer);
+    return () => {
+      document.removeEventListener('visibilitychange', resetBaseline);
+      clearInterval(timer);
+    };
   }, [status, supported]);
 
   useEffect(() => {
@@ -285,7 +308,7 @@ function InBrowserPlayer({ url, kind, focusOnMount = false }) {
             </EuiButton>
           </div>
         )}
-        {muted && (status === 'loading' || status === 'playing' || status === 'stalled') && (
+        {muted && (status === 'loading' || status === 'playing' || status === 'stalled' || status === 'frozen') && (
           <EuiButton size="s" fill color="text" onClick={unmute} style={{ position: 'absolute', top: 8, left: 8 }} data-testid="player-unmute">
             Tap to unmute
           </EuiButton>
@@ -297,17 +320,17 @@ function InBrowserPlayer({ url, kind, focusOnMount = false }) {
           {mediaInfo?.width ? ` · ${mediaInfo.width}×${mediaInfo.height}` : ''}
         </EuiText>
       )}
-      {(status === 'error' || status === 'stalled') && (
+      {(status === 'error' || status === 'stalled' || status === 'frozen') && (
         <Fragment>
           <EuiSpacer size="s" />
           <EuiCallOut
             size="s"
             color={status === 'error' ? 'danger' : 'warning'}
             iconType="warning"
-            title={status === 'error' ? 'Playback failed' : 'The stream is taking too long to start'}
+            title={NOTICE_TITLES[status]}
             data-testid="player-error"
           >
-            <p>{status === 'error' ? error : 'The channel may be offline, busy or use a format this browser cannot play.'} Try &quot;Open in VLC&quot; or the .m3u download below.</p>
+            <p>{status === 'error' ? error : NOTICE_BODIES[status]} Try &quot;Open in VLC&quot; or the .m3u download below.</p>
           </EuiCallOut>
         </Fragment>
       )}
