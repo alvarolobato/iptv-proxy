@@ -219,3 +219,141 @@ func TestUpstreamErrorReason_OmitsCredentials(t *testing.T) {
 		t.Errorf("upstreamFailureStatus(other) want 502")
 	}
 }
+
+// TestHLS_RetriesWholeRedirectFlow verifies an unreachable HLS stream server makes the proxy ask the provider
+// again (which can redirect elsewhere) instead of retrying the same dead host.
+func TestHLS_RetriesWholeRedirectFlow(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	dead, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	deadAddr := dead.Addr().String()
+	dead.Close()
+
+	manifest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.Write([]byte("#EXTM3U\n/hlsr/tok/xu/xp/123/1/seg.ts\n")) // nolint: errcheck
+	}))
+	defer manifest.Close()
+
+	var hits int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			http.Redirect(w, r, "http://"+deadAddr+"/hls/tok/123.m3u8", http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, manifest.URL+"/hls/tok/123.m3u8", http.StatusFound)
+	}))
+	defer provider.Close()
+
+	c := newXtreamM3UConfig(t, provider.URL, provider.URL+"/play/xu/xp/123.m3u8")
+	c.UpstreamConnectTimeout = time.Second
+	c.UpstreamRetries = 2
+	proxy := newUpstreamTestProxy(t, c)
+
+	resp, err := http.Get(proxy.URL + "/play/u/p/123.m3u8")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %q)", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "/hlsr/tok/u/p/123/1/seg.ts") {
+		t.Errorf("manifest credentials not rewritten: %q", body)
+	}
+	if got := atomic.LoadInt32(&hits); got != 2 {
+		t.Errorf("provider requests = %d, want 2 (retry re-asks the provider for a stream server)", got)
+	}
+}
+
+// TestHLS_KeepsProviderErrorStatus verifies an error manifest is not reported to the player as 200.
+func TestHLS_KeepsProviderErrorStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	manifest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer manifest.Close()
+
+	var hits int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		http.Redirect(w, r, manifest.URL+"/hls/tok/123.m3u8", http.StatusFound)
+	}))
+	defer provider.Close()
+
+	c := newXtreamM3UConfig(t, provider.URL, provider.URL+"/play/xu/xp/123.m3u8")
+	c.UpstreamRetries = 2
+	proxy := newUpstreamTestProxy(t, c)
+
+	resp, err := http.Get(proxy.URL + "/play/u/p/123.m3u8")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want 403 passed through", resp.StatusCode)
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Errorf("provider requests = %d, want 1 (HTTP errors are not retried)", got)
+	}
+}
+
+// TestUpstream_TotalBudgetCapsRetries verifies retries stop once the time budget is spent, so many retries can't
+// add up to a longer wait than before.
+func TestUpstream_TotalBudgetCapsRetries(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	silent, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer silent.Close()
+
+	var hits int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		http.Redirect(w, r, "http://"+silent.Addr().String()+r.URL.Path, http.StatusFound)
+	}))
+	defer provider.Close()
+
+	c := newXtreamM3UConfig(t, provider.URL, provider.URL+"/live/xu/xp/123.ts")
+	c.UpstreamConnectTimeout = 100 * time.Millisecond
+	c.UpstreamRetries = 20 // budget, not this count, must end it
+	proxy := newUpstreamTestProxy(t, c)
+
+	start := time.Now()
+	resp, err := http.Get(proxy.URL + "/live/u/p/123.ts")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	resp.Body.Close()
+	elapsed := time.Since(start)
+
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Errorf("status = %d, want 504", resp.StatusCode)
+	}
+	if budget := c.upstreamBudget(); elapsed > budget+3*time.Second {
+		t.Errorf("took %v, want within budget %v (+slack)", elapsed, budget)
+	}
+	if got := atomic.LoadInt32(&hits); got >= 21 {
+		t.Errorf("provider requests = %d, want fewer than the 21 configured attempts", got)
+	}
+}
+
+func TestRedactCredentials(t *testing.T) {
+	in := `cannot reach server. Get "http://prov:80/player_api.php?username=xu&password=s3cret&action=get": dial tcp: i/o timeout`
+	got := redactCredentials(in)
+	if strings.Contains(got, "s3cret") || strings.Contains(got, "xu&") {
+		t.Errorf("credentials not redacted: %q", got)
+	}
+	if !strings.Contains(got, "prov:80") || !strings.Contains(got, "i/o timeout") {
+		t.Errorf("redaction removed useful context: %q", got)
+	}
+}

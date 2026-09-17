@@ -30,6 +30,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sync"
 	"syscall"
 	"time"
@@ -73,15 +74,43 @@ func (c *Config) upstreamClient(followRedirects bool) *http.Client {
 	return client
 }
 
+// upstreamAttempts is how many times a provider request may be tried (1 + configured retries).
+func (c *Config) upstreamAttempts() int {
+	if attempts := 1 + c.UpstreamRetries; attempts > 1 {
+		return attempts
+	}
+	return 1
+}
+
+// upstreamBudget bounds the total time spent on a request and its retries, so a sequence of slow attempts can't
+// take longer than a single un-bounded attempt used to. One attempt costs at most a dial plus a header wait on
+// each of the provider and stream-server hops.
+func (c *Config) upstreamBudget() time.Duration {
+	connect := c.UpstreamConnectTimeout
+	if connect <= 0 {
+		connect = defaultUpstreamConnectTimeout
+	}
+	return time.Duration(c.upstreamAttempts()) * 2 * connect
+}
+
+// doUpstreamOnce sends a single provider request bound to the client request context, with no retry. Callers that
+// retry a multi-step flow (HLS: provider redirect, then manifest) use this so a retry restarts the whole flow.
+func (c *Config) doUpstreamOnce(ctx *gin.Context, client *http.Client, newReq func(context.Context) (*http.Request, error)) (*http.Response, error) {
+	req, err := newReq(ctx.Request.Context())
+	if err != nil {
+		return nil, err
+	}
+	return client.Do(req)
+}
+
 // doUpstream sends a provider request, retrying when the upstream (typically the stream server the provider
 // redirects to) can't be reached or doesn't answer. Each attempt builds a fresh request for the original URL, so
 // the provider can hand out a different stream server. Nothing has been written to the client yet, so retrying is
 // safe. Requests are bound to the client request's context and stop when the client goes away.
 func (c *Config) doUpstream(ctx *gin.Context, client *http.Client, newReq func(context.Context) (*http.Request, error)) (*http.Response, error) {
-	attempts := 1 + c.UpstreamRetries
-	if attempts < 1 {
-		attempts = 1
-	}
+	attempts := c.upstreamAttempts()
+	budget := c.upstreamBudget()
+	start := time.Now()
 	reqCtx := ctx.Request.Context()
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
@@ -94,7 +123,7 @@ func (c *Config) doUpstream(ctx *gin.Context, client *http.Client, newReq func(c
 			return resp, nil
 		}
 		lastErr = err
-		if reqCtx.Err() != nil || !isRetryableUpstreamError(err) || attempt == attempts {
+		if reqCtx.Err() != nil || !isRetryableUpstreamError(err) || attempt == attempts || time.Since(start) >= budget {
 			break
 		}
 		log.Printf("[iptv-proxy] upstream attempt %d/%d failed (%s); retrying", attempt, attempts, upstreamErrorReason(err))
@@ -105,6 +134,47 @@ func (c *Config) doUpstream(ctx *gin.Context, client *http.Client, newReq func(c
 		}
 	}
 	return nil, lastErr
+}
+
+// retryUpstreamFlow runs a multi-step provider flow until an attempt writes the client response, fails with a
+// non-retryable error, or the attempt/time budget runs out; then it aborts with the gateway status. attempt
+// reports whether it wrote the response, and otherwise the error that decides whether the flow is retried.
+func (c *Config) retryUpstreamFlow(ctx *gin.Context, attempt func() (bool, error)) {
+	attempts := c.upstreamAttempts()
+	budget := c.upstreamBudget()
+	start := time.Now()
+	reqCtx := ctx.Request.Context()
+	var lastErr error
+	for i := 1; i <= attempts; i++ {
+		handled, err := attempt()
+		if handled {
+			return
+		}
+		lastErr = err
+		if reqCtx.Err() != nil || !isRetryableUpstreamError(err) || i == attempts || time.Since(start) >= budget {
+			break
+		}
+		log.Printf("[iptv-proxy] upstream flow attempt %d/%d failed (%s); retrying", i, attempts, upstreamErrorReason(err))
+		select {
+		case <-reqCtx.Done():
+			abortUpstream(ctx, reqCtx.Err())
+			return
+		case <-time.After(time.Duration(i) * upstreamRetryBackoff):
+		}
+	}
+	if lastErr == nil {
+		lastErr = errors.New("upstream request failed")
+	}
+	abortUpstream(ctx, lastErr)
+}
+
+// credentialParamRE matches credential query parameters in free-form messages.
+var credentialParamRE = regexp.MustCompile(`(?i)\b(username|password|token)=[^&\s"']+`)
+
+// redactCredentials masks credentials in a message. Errors from the vendored Xtream client embed the request URL
+// with username/password and are formatted with %v, so they can't be unwrapped and sanitised structurally.
+func redactCredentials(s string) string {
+	return credentialParamRE.ReplaceAllString(s, "$1=<redacted>")
 }
 
 // isRetryableUpstreamError reports whether a failed provider request is worth retrying: timeouts, failed dials,

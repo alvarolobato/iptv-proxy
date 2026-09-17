@@ -321,7 +321,8 @@ func (c *Config) xtreamXMLTV(ctx *gin.Context) {
 		break
 	}
 	if lastErr != nil {
-		log.Printf("[iptv-proxy] XMLTV failed after %d attempts: %v; returning empty EPG", maxRetries, lastErr)
+		// The vendored Xtream client formats the request URL (with credentials) into its error message.
+		log.Printf("[iptv-proxy] XMLTV failed after %d attempts: %s; returning empty EPG", maxRetries, redactCredentials(lastErr.Error()))
 		ctx.Data(http.StatusOK, "application/xml", []byte(`<?xml version="1.0" encoding="UTF-8"?><tv></tv>`))
 		return
 	}
@@ -546,8 +547,17 @@ func getHlsRedirectURL(channel string) (*url.URL, error) {
 
 func (c *Config) hlsXtreamStream(ctx *gin.Context, oriURL *url.URL) {
 	client := c.upstreamClient(false)
+	// Retry the whole redirect flow: the provider picks a stream server per request, so retrying only the
+	// resolved location would keep hitting the same unreachable host.
+	c.retryUpstreamFlow(ctx, func() (bool, error) {
+		return c.hlsXtreamAttempt(ctx, client, oriURL)
+	})
+}
 
-	resp, err := c.doUpstream(ctx, client, func(reqCtx context.Context) (*http.Request, error) {
+// hlsXtreamAttempt runs one HLS flow: ask the provider, follow its redirect to the stream server, rewrite the
+// manifest. It reports whether the client response was written; if not, the error decides whether to retry.
+func (c *Config) hlsXtreamAttempt(ctx *gin.Context, client *http.Client, oriURL *url.URL) (bool, error) {
+	resp, err := c.doUpstreamOnce(ctx, client, func(reqCtx context.Context) (*http.Request, error) {
 		req, err := http.NewRequestWithContext(reqCtx, "GET", oriURL.String(), nil)
 		if err != nil {
 			return nil, err
@@ -556,60 +566,58 @@ func (c *Config) hlsXtreamStream(ctx *gin.Context, oriURL *url.URL) {
 		return req, nil
 	})
 	if err != nil {
-		abortUpstream(ctx, err)
-		return
+		return false, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusFound {
-		location, err := resp.Location()
-		if err != nil {
-			ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-			return
-		}
-		id := ctx.Param("id")
-		if strings.Contains(location.String(), id) {
-			hlsChannelsRedirectURLLock.Lock()
-			hlsChannelsRedirectURL[id] = *location
-			hlsChannelsRedirectURLLock.Unlock()
-
-			hlsResp, err := c.doUpstream(ctx, client, func(reqCtx context.Context) (*http.Request, error) {
-				hlsReq, err := http.NewRequestWithContext(reqCtx, "GET", location.String(), nil)
-				if err != nil {
-					return nil, err
-				}
-				mergeHttpHeader(hlsReq.Header, ctx.Request.Header)
-				return hlsReq, nil
-			})
-			if err != nil {
-				abortUpstream(ctx, err)
-				return
-			}
-			defer hlsResp.Body.Close()
-
-			b, err := io.ReadAll(hlsResp.Body)
-			if err != nil {
-				ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-				return
-			}
-			// Providers may write credentials raw or escaped; swap them per playlist line so they never reach the client.
-			lines := strings.Split(string(b), "\n")
-			for i, line := range lines {
-				lines[i] = replaceCredentialSegments(line, c.XtreamUser.String(), c.XtreamPassword.String(),
-					url.PathEscape(c.pathAuthUser()), url.PathEscape(c.pathAuthPassword()))
-			}
-			body := strings.Join(lines, "\n")
-
-			mergeHttpHeader(ctx.Writer.Header(), hlsResp.Header)
-
-			ctx.Data(http.StatusOK, hlsResp.Header.Get("Content-Type"), []byte(body))
-			return
-		}
-		ctx.AbortWithError(http.StatusInternalServerError, errors.New("Unable to HLS stream")) // nolint: errcheck
-		return
+	if resp.StatusCode != http.StatusFound {
+		ctx.Status(resp.StatusCode)
+		return true, nil
 	}
 
-	ctx.Status(resp.StatusCode)
+	location, err := resp.Location()
+	if err != nil {
+		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+		return true, nil
+	}
+	id := ctx.Param("id")
+	if !strings.Contains(location.String(), id) {
+		ctx.AbortWithError(http.StatusInternalServerError, errors.New("Unable to HLS stream")) // nolint: errcheck
+		return true, nil
+	}
+
+	hlsChannelsRedirectURLLock.Lock()
+	hlsChannelsRedirectURL[id] = *location
+	hlsChannelsRedirectURLLock.Unlock()
+
+	hlsResp, err := c.doUpstreamOnce(ctx, client, func(reqCtx context.Context) (*http.Request, error) {
+		hlsReq, err := http.NewRequestWithContext(reqCtx, "GET", location.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+		mergeHttpHeader(hlsReq.Header, ctx.Request.Header)
+		return hlsReq, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	defer hlsResp.Body.Close()
+
+	b, err := io.ReadAll(hlsResp.Body)
+	if err != nil {
+		return false, err
+	}
+	// Providers may write credentials raw or escaped; swap them per playlist line so they never reach the client.
+	lines := strings.Split(string(b), "\n")
+	for i, line := range lines {
+		lines[i] = replaceCredentialSegments(line, c.XtreamUser.String(), c.XtreamPassword.String(),
+			url.PathEscape(c.pathAuthUser()), url.PathEscape(c.pathAuthPassword()))
+	}
+
+	mergeHttpHeader(ctx.Writer.Header(), hlsResp.Header)
+	// Keep the provider status: an error manifest (403/404) must not reach the player as 200.
+	ctx.Data(hlsResp.StatusCode, hlsResp.Header.Get("Content-Type"), []byte(strings.Join(lines, "\n")))
+	return true, nil
 }
 
 // filterXtreamResponse applies group/channel inclusion and exclusion rules to an Xtream API response.
