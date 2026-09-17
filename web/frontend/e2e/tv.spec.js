@@ -225,6 +225,24 @@ test.describe('TV view', () => {
     await expect(sheet.getByTestId('player-video')).toHaveCount(0);
   });
 
+  // The buffered player settings are the fix for constant rebuffering (ADR-016). E2E blocks real streams, so
+  // assert the configuration itself; without this nothing would catch a revert to the low-latency defaults.
+  test('keeps the buffered player configuration', async ({ page }) => {
+    await blockStreams(page);
+    await page.goto('/tv');
+    const cfg = await page.evaluate(() => window.__mpegtsConfig);
+    expect(cfg, 'player config must be exposed for this guard').toBeTruthy();
+    expect(cfg).toMatchObject({
+      enableStashBuffer: true,
+      liveBufferLatencyChasing: true,
+      liveBufferLatencyMaxLatency: 10,
+      liveBufferLatencyMinRemain: 4,
+      autoCleanupSourceBuffer: true,
+      autoCleanupMaxBackwardDuration: 60,
+      autoCleanupMinBackwardDuration: 30,
+    });
+  });
+
   test('header TV button opens the TV view', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('button', { name: 'TV', exact: true }).click();

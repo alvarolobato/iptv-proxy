@@ -23,25 +23,38 @@ import { VLC_APP_STORE_URL, buildM3u, detectPlatform, externalPlayerLinks, isBlo
 // mpegts.js logs every segment at info/debug level by default; keep only warnings and errors.
 mpegts.LoggingControl.applyConfig({ enableDebug: false, enableVerbose: false, enableInfo: false });
 
-// Buffered live MPEG-TS settings: smooth playback over low latency. With latency chasing on, mpegts.js keeps only
-// ~0.5 s buffered and jumps forward whenever it exceeds 1.5 s, so any network jitter stalls playback (measured on
-// real IPTV streams: 28 stalls in 45 s vs 0 with this config, ~10 s behind live). Range loading keeps the mpegts.js
-// defaults: the first request then carries no Range or custom headers, so cross-origin requests to the proxy port
-// need no CORS preflight.
-const MPEGTS_CONFIG = {
+// Buffered live MPEG-TS settings (see ADR-016). Latency chasing stays on because nothing else paces live
+// loading: with it off, a provider that bursts faster than realtime fills the SourceBuffer, mpegts.js suspends
+// the transmuxer and never resumes for live, freezing playback. But the library defaults chase 1.5 s with 0.5 s
+// remaining, which stalls constantly on IPTV streams (measured: 28 stalls in 45 s, vs 2 short ones with the
+// limits below). Range loading keeps the mpegts.js defaults: the first request then carries no Range or custom
+// headers, so cross-origin requests to the proxy port need no CORS preflight.
+export const MPEGTS_CONFIG = {
   enableWorker: true,
   enableStashBuffer: true,
   stashInitialSize: 1024 * 1024,
   lazyLoad: false,
-  liveBufferLatencyChasing: false,
+  liveBufferLatencyChasing: true,
+  liveBufferLatencyMaxLatency: 10,
+  liveBufferLatencyMinRemain: 4,
   autoCleanupSourceBuffer: true,
   autoCleanupMaxBackwardDuration: 60,
   autoCleanupMinBackwardDuration: 30,
 };
 
+// Exposed so an e2e test can assert these settings survive refactors (e2e blocks real streams, so playback
+// itself can't guard them).
+if (typeof window !== 'undefined') {
+  window.__mpegtsConfig = MPEGTS_CONFIG;
+}
+
 // If nothing plays after this long (channel offline, provider connection limit, unsupported codec),
 // point the viewer to the external player options.
 const STALL_TIMEOUT_MS = 15000;
+
+// While playing, a picture that stops advancing for this long counts as frozen.
+const FREEZE_TIMEOUT_MS = 12000;
+const FREEZE_CHECK_INTERVAL_MS = 2000;
 
 function canPlayInBrowser(kind) {
   if (kind === 'mpegts') return mpegts.getFeatureList().mseLivePlayback;
@@ -113,6 +126,29 @@ function InBrowserPlayer({ url, kind, focusOnMount = false }) {
     if (!supported || status !== 'loading') return undefined;
     const timer = setTimeout(() => setStatus((s) => (s === 'loading' ? 'stalled' : s)), STALL_TIMEOUT_MS);
     return () => clearTimeout(timer);
+  }, [status, supported]);
+
+  // A picture that freezes while "playing" (provider stopped sending, or mpegts.js suspended loading) raises no
+  // error and not always a 'waiting' event, so watch playback progress and offer the external players instead.
+  useEffect(() => {
+    if (!supported || status !== 'playing') return undefined;
+    const video = videoRef.current;
+    if (!video) return undefined;
+    let lastTime = video.currentTime;
+    let lastProgressAt = Date.now();
+    const timer = setInterval(() => {
+      if (video.paused) {
+        lastProgressAt = Date.now();
+        return;
+      }
+      if (video.currentTime > lastTime + 0.05) {
+        lastTime = video.currentTime;
+        lastProgressAt = Date.now();
+        return;
+      }
+      if (Date.now() - lastProgressAt >= FREEZE_TIMEOUT_MS) setStatus('stalled');
+    }, FREEZE_CHECK_INTERVAL_MS);
+    return () => clearInterval(timer);
   }, [status, supported]);
 
   useEffect(() => {

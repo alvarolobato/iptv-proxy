@@ -9,15 +9,16 @@ Newest entries first.
 
 **Date:** 2026-09-14
 **Status:** Implemented
-**PR:** (this PR)
+**PR:** [#51](https://github.com/alvarolobato/iptv-proxy/pull/51)
 
-**Context:** Users reported the in-browser TV player "always buffering". The mpegts.js config enabled `liveBufferLatencyChasing` with its defaults (max latency 1.5 s, min remain 0.5 s) and disabled the stash buffer, so the player kept ~0.5 s buffered and jumped forward whenever more arrived. Benchmark in Chrome against the production proxy (La 1, 45 s each): current config 28 stalls / 5.3 s stalled / 0.5 s buffered ahead / 9 forward jumps; stash buffer on + no latency chasing 0 stalls / 11.7 s ahead; relaxed chasing (10 s / 4 s) 2 stalls / 4.7 s ahead.
+**Context:** Users reported the in-browser TV player "always buffering". The mpegts.js config enabled `liveBufferLatencyChasing` with its defaults (max latency 1.5 s, min remain 0.5 s) and disabled the stash buffer, so the player kept ~0.5 s buffered and jumped forward whenever more arrived. Benchmark in Chrome against the production proxy (La 1). 45 s per config: previous config 28 stalls / 5.3 s stalled / 0.5 s buffered ahead / 9 forward jumps; stash buffer on without chasing 0 stalls / 11.7 s ahead; relaxed chasing (10 s / 4 s) 2 stalls / 4.7 s ahead. 5 min per config, sampled every 30 s: relaxed chasing held 5.7-6.3 s ahead for the whole run with 1 stall (8 ms); no chasing settled at 17.6-19.2 s ahead with no stalls on this channel — stable here, but nothing bounds it if a provider bursts faster than realtime.
 
-**Decision:** Enable the stash buffer (1 MB initial), disable latency chasing, keep `autoCleanupSourceBuffer` with 60 s / 30 s windows.
+**Decision:** Keep latency chasing but relax it (`liveBufferLatencyMaxLatency` 10 s, `liveBufferLatencyMinRemain` 4 s) so the forward buffer stays bounded, enable the stash buffer, and tighten `autoCleanupSourceBuffer` to 60 s / 30 s (library defaults are 180 s / 120 s). Note the smoothness comes from not chasing 1.5 s of latency, not from `stashInitialSize`: for live streams mpegts.js resets the stash size from the measured bitrate after the first samples.
 
 **Consequences:**
-- Smooth playback on jittery IPTV streams; live TV runs ~10–12 s behind real time (acceptable for a TV view; VLC is similar).
-- Slightly more memory per session (bounded by the cleanup windows).
+- Smooth playback on jittery IPTV streams; the forward buffer holds ~6 s, so live TV runs roughly that far behind real time.
+- The forward buffer stays bounded: with chasing disabled entirely, a provider that bursts faster than realtime grows the SourceBuffer until it is full, and mpegts.js suspends loading for live streams without ever resuming (the resume hook only exists on the lazyLoad path), which freezes playback silently.
+- Memory per session is bounded by the cleanup windows.
 
 ---
 
