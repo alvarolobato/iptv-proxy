@@ -224,7 +224,7 @@ func init() {
 	rootCmd.Flags().Int("xmltv-cache-max-entries", 100, "Max cached XMLTV responses")
 	// Upstream (provider) connections
 	rootCmd.Flags().String("upstream-connect-timeout", "8s", "Timeout to connect to the provider or its stream server and to receive response headers (e.g. 8s); one attempt is capped at twice this")
-	rootCmd.Flags().Int("upstream-retries", 1, "Extra attempts when the provider's stream server is unreachable or silent; each asks the provider for a fresh redirect")
+	rootCmd.Flags().Int("upstream-retries", 1, "Extra attempts when the provider's stream server is unreachable or silent; each asks the provider for a fresh redirect (clamped to 9)")
 	// Elasticsearch stats
 	rootCmd.Flags().String("es-url", "", "Elasticsearch base URL for stats (e.g. https://mycluster.es.io); enables stats when set")
 	rootCmd.Flags().String("es-api-key", "", "Elasticsearch API key (base64 id:key); env: IPTV_PROXY_ES_API_KEY")

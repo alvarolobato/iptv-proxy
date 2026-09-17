@@ -117,15 +117,10 @@ func (c *Config) upstreamAttemptTimeout() time.Duration {
 	return 2 * c.upstreamConnectTimeout()
 }
 
-// upstreamFlowRequestTimeout caps one request inside a multi-step flow (HLS). Manifests are small, so a flow's
-// two requests together stay within the same budget as one stream attempt.
-func (c *Config) upstreamFlowRequestTimeout() time.Duration {
-	return c.upstreamConnectTimeout()
-}
-
-// upstreamFlowAttemptCost is the worst case for one flow attempt: both of its capped requests.
+// upstreamFlowAttemptCost caps one whole flow attempt: the provider request, any manifest redirect hops and the
+// manifest read share this deadline, so extra hops can't multiply the wait.
 func (c *Config) upstreamFlowAttemptCost() time.Duration {
-	return 2 * c.upstreamFlowRequestTimeout()
+	return 2 * c.upstreamConnectTimeout()
 }
 
 // upstreamFlowWorstCase is the longest a flow and its retries can take: every attempt spending its whole cap,

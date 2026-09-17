@@ -604,3 +604,125 @@ func TestUpstreamAttempts_Clamped(t *testing.T) {
 		}
 	}
 }
+
+// TestHLS_PassesThroughNotModified verifies a cache answer to the player's conditional request is passed through:
+// HLS players poll manifests with If-None-Match, and treating 304 as a redirect turned that into a gateway error.
+func TestHLS_PassesThroughNotModified(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	manifest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("If-None-Match") != "" {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.Write([]byte("#EXTM3U\n/hlsr/tok/xu/xp/123/1/seg.ts\n")) // nolint: errcheck
+	}))
+	defer manifest.Close()
+
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, manifest.URL+"/hls/tok/123.m3u8", http.StatusFound)
+	}))
+	defer provider.Close()
+
+	c := newXtreamM3UConfig(t, provider.URL, provider.URL+"/play/xu/xp/123.m3u8")
+	proxy := newUpstreamTestProxy(t, c)
+
+	req, err := http.NewRequest(http.MethodGet, proxy.URL+"/play/u/p/123.m3u8", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("If-None-Match", `"abc"`)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusNotModified {
+		t.Errorf("status = %d, want 304 passed through (body %q)", resp.StatusCode, body)
+	}
+	if len(body) != 0 {
+		t.Errorf("304 carried a body: %q", body)
+	}
+}
+
+// TestHLS_StallingManifestBoundedByFlowDeadline verifies a stream server that sends headers and then stops is cut
+// off by the flow deadline instead of holding the player indefinitely.
+func TestHLS_StallingManifestBoundedByFlowDeadline(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	manifest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		select {
+		case <-r.Context().Done():
+		case <-time.After(30 * time.Second):
+		}
+	}))
+	defer manifest.Close()
+
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, manifest.URL+"/hls/tok/123.m3u8", http.StatusFound)
+	}))
+	defer provider.Close()
+
+	c := newXtreamM3UConfig(t, provider.URL, provider.URL+"/play/xu/xp/123.m3u8")
+	c.UpstreamConnectTimeout = 300 * time.Millisecond // flow deadline 600ms per attempt
+	c.UpstreamRetries = 1
+	proxy := newUpstreamTestProxy(t, c)
+
+	start := time.Now()
+	resp, err := http.Get(proxy.URL + "/play/u/p/123.m3u8")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	resp.Body.Close()
+	elapsed := time.Since(start)
+
+	if resp.StatusCode != http.StatusGatewayTimeout && resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("status = %d, want a gateway error", resp.StatusCode)
+	}
+	if worst := c.upstreamFlowWorstCase(); elapsed > worst+2*time.Second {
+		t.Errorf("stalled manifest held the request %v, want within the flow worst case %v (+slack)", elapsed, worst)
+	}
+}
+
+// TestHLS_RefusesUndecodableManifestEncoding verifies a manifest in an encoding the proxy can't decode is refused
+// rather than forwarded with the provider's credentials inside it.
+func TestHLS_RefusesUndecodableManifestEncoding(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	manifest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.Header().Set("Content-Encoding", "br")
+		w.Write([]byte("#EXTM3U\n/hlsr/tok/xu/xp/123/1/seg.ts\n")) // nolint: errcheck
+	}))
+	defer manifest.Close()
+
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, manifest.URL+"/hls/tok/123.m3u8", http.StatusFound)
+	}))
+	defer provider.Close()
+
+	c := newXtreamM3UConfig(t, provider.URL, provider.URL+"/play/xu/xp/123.m3u8")
+	proxy := newUpstreamTestProxy(t, c)
+
+	resp, err := http.Get(proxy.URL + "/play/u/p/123.m3u8")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("status = %d, want 502 for an undecodable manifest", resp.StatusCode)
+	}
+	if strings.Contains(string(body), "/xu/xp/") {
+		t.Errorf("provider credentials reached the client: %q", body)
+	}
+}
