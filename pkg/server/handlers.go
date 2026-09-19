@@ -133,22 +133,19 @@ func (c *Config) stream(ctx *gin.Context, oriURL *url.URL) {
 
 // streamWithStats proxies a single HTTP response body to the client, recording session stats.
 func (c *Config) streamWithStats(ctx *gin.Context, oriURL *url.URL, chanInfo stats.SessionEvent) {
-	client := &http.Client{}
-
-	req, err := http.NewRequest("GET", oriURL.String(), nil)
+	resp, err := c.doUpstream(ctx, c.upstreamClient(true), func(reqCtx context.Context) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(reqCtx, "GET", oriURL.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+		mergeHttpHeader(req.Header, ctx.Request.Header)
+		if rangeH := ctx.Request.Header.Get("Range"); rangeH != "" {
+			req.Header.Set("Range", rangeH)
+		}
+		return req, nil
+	})
 	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-		return
-	}
-
-	mergeHttpHeader(req.Header, ctx.Request.Header)
-	if rangeH := ctx.Request.Header.Get("Range"); rangeH != "" {
-		req.Header.Set("Range", rangeH)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+		abortUpstream(ctx, err)
 		return
 	}
 	defer resp.Body.Close()
