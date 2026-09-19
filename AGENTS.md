@@ -158,6 +158,7 @@ The Playwright config starts the server via `webServer` (see `web/frontend/scrip
 - **Keep the upstream path prefix when proxying Xtream streams.** `/play/:user/:password/:id` must forward to `{base}/play/{xu}/{xp}/{id}`; providers return 404 for `{base}/{xu}/{xp}/{id}.ts`.
 - **Catch-all dispatchers have no `:id` param.** Before calling helpers that read `ctx.Param("id")` (e.g. `xtreamStreamWithChannelInfo`, whose `.m3u8` detection picks `hlsXtreamStream`), append `gin.Param{Key: "id", ...}` to `ctx.Params` in `/play/*path`-style dispatchers.
 - **`servesXtreamM3U()` must stay strict.** Same host and port as the Xtream base URL, `get.php` path, non-empty matching credentials — it decides both route registration and UI stream URLs.
+- **Provider requests go through `upstreamClient` + `doUpstream`** (`pkg/server/upstream.go`). Don't use a bare `http.Client{}` for stream/HLS requests: it has no dial or header timeout and ignores client disconnects. Retry only before writing to the client, and never log a `*url.Error` directly (its URL carries provider credentials) — use `upstreamErrorReason`.
 
 ### UI (EUI / React)
 

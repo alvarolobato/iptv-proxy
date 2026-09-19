@@ -21,6 +21,21 @@ Newest entries first.
 - Consequence of that: pausing live TV does not hold the frame. The player keeps up with live while paused, so resuming continues from live rather than from the pause point.
 - The forward buffer stays bounded: with chasing disabled entirely, a provider that bursts faster than realtime grows the SourceBuffer until it is full, and mpegts.js suspends loading for live streams without ever resuming (the resume hook only exists on the lazyLoad path), which freezes playback silently.
 - Memory per session is bounded by the cleanup windows.
+## ADR-015: Fail fast and retry unreachable provider stream servers
+
+**Date:** 2026-09-14
+**Status:** Implemented
+**PR:** (this PR)
+
+**Context:** Xtream providers redirect stream requests to one of several stream servers. Some are intermittently unreachable; the proxy used a bare `http.Client{}`, so the player waited for Go's default ~30 s dial timeout and then got `500`. The upstream request was also not tied to the client request, and the logged error included the provider URL (with credentials).
+
+**Decision:** All stream and HLS provider requests go through `doUpstream` (single requests) or `retryUpstreamFlow` (multi-step flows such as HLS: provider redirect, then manifest) with a shared transport: dial timeout `--upstream-connect-timeout` (default 8 s) and the same for response headers. Each attempt is hard-capped at twice the connect timeout (dial plus headers, across any redirect) by a context cancelled when the response body is closed, so a streaming body is never cut off. Timeouts, failed dials and refused/reset connections are retried `--upstream-retries` times (default 1) with a short backoff; each retry re-requests the original provider URL so the provider can hand out a different stream server. Because every attempt is hard-capped, the attempt count bounds the total wait (attempts x cap, plus backoffs capped at 2 s); a whole flow attempt (provider request, manifest redirect hops and the manifest read) shares one deadline of twice the connect timeout, so extra hops can't multiply the wait. A 304 answer to a player's conditional request is passed through, and a manifest in an encoding the proxy can't decode is refused with 502 rather than forwarded with credentials intact. HLS requests drop the client's `Accept-Encoding` so the manifest arrives uncompressed and credentials can actually be rewritten. Retries happen only before anything is written to the client, stop when the client disconnects, and failures return `504`/`502` with a log reason that omits the URL path.
+
+**Consequences:**
+- A dead stream server costs ~8 s per attempt instead of 30 s; a working alternative is found automatically when the provider offers one.
+- Worst case: `(1 + retries) × 2 × connect timeout` plus backoffs — ~32 s with defaults, in the same range as the single 30 s wait it replaces, but with a retry on a different stream server.
+- HTTP error statuses from the provider are passed through unchanged and never retried; the provider status of an HLS manifest is preserved, and its `Content-Length` is dropped because rewriting credentials changes the body length.
+- A stream server is only remembered for later `/hls` chunk requests once it has actually served the manifest.
 
 ---
 

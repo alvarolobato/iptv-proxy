@@ -64,6 +64,17 @@ See [replacements.md](replacements.md) for the replacements file format.
 
 ---
 
+## Upstream connections
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--upstream-connect-timeout` | `8s` | Timeout to connect to the provider or to the stream server it redirects to, and the time allowed for response headers. Each attempt is capped at twice this (dial plus headers); inside an HLS flow each of the two requests is capped at this value. The stream body itself is not time-limited. |
+| `--upstream-retries` | 1 | Extra attempts when that server is unreachable or silent. Each attempt re-requests the provider URL, which may redirect to a different stream server. Only failures before any data is sent to the player are retried. Every attempt is capped, so the attempt count bounds the total wait: `(1 + retries) x 2 x connect timeout` plus backoffs (capped at 2 s each) — ~32 s with defaults. Retries are clamped to 9 (10 attempts). When all attempts fail the player gets `504 Gateway Timeout` (timeouts) or `502 Bad Gateway` (other connection errors). |
+
+Environment variables: `IPTV_PROXY_UPSTREAM_CONNECT_TIMEOUT`, `IPTV_PROXY_UPSTREAM_RETRIES`.
+
+---
+
 ## Configuration UI
 
 | Flag | Default | Description |

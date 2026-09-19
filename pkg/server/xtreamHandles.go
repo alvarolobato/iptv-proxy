@@ -19,6 +19,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -44,6 +45,9 @@ type cacheMeta struct {
 	string
 	time.Time
 }
+
+// maxManifestRedirects bounds how many hops a stream server may bounce an HLS manifest through.
+const maxManifestRedirects = 2
 
 var hlsChannelsRedirectURL map[string]url.URL = map[string]url.URL{}
 var hlsChannelsRedirectURLLock = sync.RWMutex{}
@@ -320,7 +324,8 @@ func (c *Config) xtreamXMLTV(ctx *gin.Context) {
 		break
 	}
 	if lastErr != nil {
-		log.Printf("[iptv-proxy] XMLTV failed after %d attempts: %v; returning empty EPG", maxRetries, lastErr)
+		// The vendored Xtream client formats the request URL (with credentials) into its error message.
+		log.Printf("[iptv-proxy] XMLTV failed after %d attempts: %s; returning empty EPG", maxRetries, redactCredentials(lastErr.Error()))
 		ctx.Data(http.StatusOK, "application/xml", []byte(`<?xml version="1.0" encoding="UTF-8"?><tv></tv>`))
 		return
 	}
@@ -544,77 +549,132 @@ func getHlsRedirectURL(channel string) (*url.URL, error) {
 }
 
 func (c *Config) hlsXtreamStream(ctx *gin.Context, oriURL *url.URL) {
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	client := c.upstreamClient(false)
+	// Retry the whole redirect flow: the provider picks a stream server per request, so retrying only the
+	// resolved location would keep hitting the same unreachable host.
+	c.retryUpstreamFlow(ctx, func() (bool, error) {
+		return c.hlsXtreamAttempt(ctx, client, oriURL)
+	})
+}
 
-	req, err := http.NewRequest("GET", oriURL.String(), nil)
+// isHTTPRedirect reports whether a status asks the client to fetch another URL. 304 is deliberately excluded:
+// it is a cache answer to the conditional headers HLS players send, not a redirect.
+func isHTTPRedirect(status int) bool {
+	switch status {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		return true
+	}
+	return false
+}
+
+// hlsRequest performs one request of an HLS flow under the flow's shared deadline.
+func hlsRequest(flowCtx context.Context, ctx *gin.Context, client *http.Client, target *url.URL) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(flowCtx, "GET", target.String(), nil)
 	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-		return
+		return nil, err
 	}
-
 	mergeHttpHeader(req.Header, ctx.Request.Header)
+	// Let Go negotiate compression: forwarding a client's Accept-Encoding would pass the provider's gzipped
+	// manifest through untouched, so the credential rewrite would silently do nothing.
+	req.Header.Del("Accept-Encoding")
+	return client.Do(req)
+}
 
-	resp, err := client.Do(req)
+// hlsXtreamAttempt runs one HLS flow: ask the provider, follow its redirect to the stream server (and any hop
+// that server bounces on to), then rewrite the manifest. The whole attempt shares one deadline, so the hops and
+// the manifest read together stay inside the flow's cap. It reports whether the client response was written; if
+// not, the returned error decides whether the flow is retried.
+func (c *Config) hlsXtreamAttempt(ctx *gin.Context, client *http.Client, oriURL *url.URL) (bool, error) {
+	flowCtx, cancel := context.WithTimeout(ctx.Request.Context(), c.upstreamFlowAttemptCost())
+	defer cancel()
+
+	resp, err := hlsRequest(flowCtx, ctx, client, oriURL)
 	if err != nil {
-		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-		return
+		return false, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusFound {
-		location, err := resp.Location()
-		if err != nil {
-			ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-			return
-		}
-		id := ctx.Param("id")
-		if strings.Contains(location.String(), id) {
-			hlsChannelsRedirectURLLock.Lock()
-			hlsChannelsRedirectURL[id] = *location
-			hlsChannelsRedirectURLLock.Unlock()
-
-			hlsReq, err := http.NewRequest("GET", location.String(), nil)
-			if err != nil {
-				ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-				return
-			}
-
-			mergeHttpHeader(hlsReq.Header, ctx.Request.Header)
-
-			hlsResp, err := client.Do(hlsReq)
-			if err != nil {
-				ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-				return
-			}
-			defer hlsResp.Body.Close()
-
-			b, err := io.ReadAll(hlsResp.Body)
-			if err != nil {
-				ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
-				return
-			}
-			// Providers may write credentials raw or escaped; swap them per playlist line so they never reach the client.
-			lines := strings.Split(string(b), "\n")
-			for i, line := range lines {
-				lines[i] = replaceCredentialSegments(line, c.XtreamUser.String(), c.XtreamPassword.String(),
-					url.PathEscape(c.pathAuthUser()), url.PathEscape(c.pathAuthPassword()))
-			}
-			body := strings.Join(lines, "\n")
-
-			mergeHttpHeader(ctx.Writer.Header(), hlsResp.Header)
-
-			ctx.Data(http.StatusOK, hlsResp.Header.Get("Content-Type"), []byte(body))
-			return
-		}
-		ctx.AbortWithError(http.StatusInternalServerError, errors.New("Unable to HLS stream")) // nolint: errcheck
-		return
+	if resp.StatusCode != http.StatusFound {
+		ctx.Status(resp.StatusCode)
+		return true, nil
 	}
 
-	ctx.Status(resp.StatusCode)
+	location, err := resp.Location()
+	if err != nil {
+		ctx.AbortWithError(http.StatusInternalServerError, err) // nolint: errcheck
+		return true, nil
+	}
+	id := ctx.Param("id")
+	if !strings.Contains(location.String(), id) {
+		ctx.AbortWithError(http.StatusInternalServerError, errors.New("Unable to HLS stream")) // nolint: errcheck
+		return true, nil
+	}
+
+	// Stream servers may bounce the manifest on to another edge. Follow those hops here: passing a 3xx to the
+	// player would hand it a Location carrying the provider's credentials and route it around the proxy.
+	manifestURL := location
+	var hlsResp *http.Response
+	for hop := 0; ; hop++ {
+		r, err := hlsRequest(flowCtx, ctx, client, manifestURL)
+		if err != nil {
+			return false, err
+		}
+		if !isHTTPRedirect(r.StatusCode) {
+			hlsResp = r
+			break
+		}
+		next, locErr := r.Location()
+		r.Body.Close()
+		if locErr != nil || hop >= maxManifestRedirects {
+			ctx.AbortWithError(http.StatusBadGateway, errors.New("HLS manifest redirect could not be resolved")) // nolint: errcheck
+			return true, nil
+		}
+		manifestURL = next
+	}
+	defer hlsResp.Body.Close()
+
+	mergeHttpHeader(ctx.Writer.Header(), hlsResp.Header)
+	// Never hand the player an upstream Location: it carries provider credentials and bypasses the proxy.
+	ctx.Writer.Header().Del("Location")
+
+	// A cache answer to the player's conditional request carries no body to rewrite.
+	if hlsResp.StatusCode == http.StatusNotModified {
+		ctx.Status(http.StatusNotModified)
+		return true, nil
+	}
+	if enc := hlsResp.Header.Get("Content-Encoding"); enc != "" && !hlsResp.Uncompressed {
+		// Credentials can't be rewritten inside a body this proxy can't decode; refusing beats leaking them.
+		ctx.AbortWithError(http.StatusBadGateway, fmt.Errorf("unsupported manifest encoding %q", enc)) // nolint: errcheck
+		return true, nil
+	}
+
+	b, err := io.ReadAll(hlsResp.Body)
+	if err != nil {
+		return false, err
+	}
+	// Only remember the stream server once it actually served the manifest: caching a dead host here would send
+	// every later /hls chunk request to it with no way to re-resolve.
+	hlsChannelsRedirectURLLock.Lock()
+	hlsChannelsRedirectURL[id] = *location
+	hlsChannelsRedirectURLLock.Unlock()
+
+	// Providers may write credentials raw or escaped; swap them per playlist line so they never reach the client.
+	lines := strings.Split(string(b), "\n")
+	for i, line := range lines {
+		lines[i] = replaceCredentialSegments(line, c.XtreamUser.String(), c.XtreamPassword.String(),
+			url.PathEscape(c.pathAuthUser()), url.PathEscape(c.pathAuthPassword()))
+	}
+
+	// Go decompressed the body it gave us, so the client must not be told it is still encoded, and rewriting
+	// credentials changes the length, so the provider's Content-Length would truncate the manifest.
+	if hlsResp.Uncompressed {
+		ctx.Writer.Header().Del("Content-Encoding")
+	}
+	ctx.Writer.Header().Del("Content-Length")
+	// Keep the provider status: an error manifest (403/404) must not reach the player as 200.
+	ctx.Data(hlsResp.StatusCode, hlsResp.Header.Get("Content-Type"), []byte(strings.Join(lines, "\n")))
+	return true, nil
 }
 
 // filterXtreamResponse applies group/channel inclusion and exclusion rules to an Xtream API response.
