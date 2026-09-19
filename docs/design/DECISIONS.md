@@ -5,6 +5,22 @@ Newest entries first.
 
 ---
 
+## ADR-016: Buffered in-browser player settings instead of low latency
+
+**Date:** 2026-09-14
+**Status:** Implemented
+**PR:** [#51](https://github.com/alvarolobato/iptv-proxy/pull/51)
+
+**Context:** Users reported the in-browser TV player "always buffering". The mpegts.js config enabled `liveBufferLatencyChasing` with its defaults (max latency 1.5 s, min remain 0.5 s) and disabled the stash buffer, so the player kept ~0.5 s buffered and jumped forward whenever more arrived. Benchmark in Chrome against the production proxy (La 1). 45 s per config: previous config 28 stalls / 5.3 s stalled / 0.5 s buffered ahead / 9 forward jumps; stash buffer on without chasing 0 stalls / 11.7 s ahead; relaxed chasing (10 s / 4 s) 2 stalls / 4.7 s ahead. 5 min per config, sampled every 30 s: relaxed chasing held 5.7-6.3 s ahead for the whole run with 1 stall (8 ms); no chasing settled at 17.6-19.2 s ahead with no stalls on this channel — stable here, but nothing bounds it if a provider bursts faster than realtime.
+
+**Decision:** Keep latency chasing but relax it (`liveBufferLatencyMaxLatency` 10 s, `liveBufferLatencyMinRemain` 4 s) so the forward buffer stays bounded, including while paused (`liveBufferLatencyChasingOnPaused`, off by default: mpegts.js keeps loading when paused but only trims behind the playhead), enable the stash buffer, and tighten `autoCleanupSourceBuffer` to 60 s / 30 s (library defaults are 180 s / 120 s). Note the smoothness comes from not chasing 1.5 s of latency, not from `stashInitialSize`: for live streams mpegts.js resets the stash size from the measured bitrate after the first samples.
+
+**Consequences:**
+- Smooth playback on jittery IPTV streams; the forward buffer holds ~6 s, so live TV runs roughly that far behind real time.
+- Chasing must also be enabled while paused. Measured over a 150 s pause: with the library default (off while paused) the forward buffer grew from 7.6 s to 156 s, a second per second with no bound, heading for a full SourceBuffer; with it on the buffer stayed 4.0-5.2 s.
+- Consequence of that: pausing live TV does not hold the frame. The player keeps up with live while paused, so resuming continues from live rather than from the pause point.
+- The forward buffer stays bounded: with chasing disabled entirely, a provider that bursts faster than realtime grows the SourceBuffer until it is full, and mpegts.js suspends loading for live streams without ever resuming (the resume hook only exists on the lazyLoad path), which freezes playback silently.
+- Memory per session is bounded by the cleanup windows.
 ## ADR-015: Fail fast and retry unreachable provider stream servers
 
 **Date:** 2026-09-14
@@ -33,7 +49,7 @@ Newest entries first.
 
 **Decision:**
 - Add a dedicated **`/tv` view** instead of changing the Channels tab defaults: it shows only the final processed list (included channels with replaced names/groups and a `stream_url`, no toggle or filter that reveals excluded ones), a Live/VOD switch (VOD = movies + series), category (group) selection and search, with a minimal mobile-first header. Configuration and viewing needs differ (excluded rows and edit actions are noise when watching), and a separate route is bookmarkable on a phone.
-- Play **in the browser with mpegts.js** (transmuxes MPEG-TS to fMP4 into MSE/ManagedMediaSource) rather than server-side ffmpeg → HLS: no server CPU, no new process lifecycle or image size, ~1–2 s latency. Low-latency live config (worker, no stash buffer, latency chasing, source buffer cleanup).
+- Play **in the browser with mpegts.js** (transmuxes MPEG-TS to fMP4 into MSE/ManagedMediaSource) rather than server-side ffmpeg → HLS: no server CPU, no new process lifecycle or image size, ~6 s behind live with the buffered player settings (see ADR-016).
 - Always offer **external players**: VLC deep links on iOS (`vlc-x-callback://x-callback-url/stream?url=`, `vlc://`) and Android (intent with `package=org.videolan.vlc` + Play Store fallback, and a chooser intent without package), a one-channel `.m3u` download (desktop VLC registers no URL scheme) and copy URL.
 - The Channels tab play action opens the same player sheet (native `<a href>` kept for middle-click).
 

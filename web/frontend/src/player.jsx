@@ -23,19 +23,53 @@ import { VLC_APP_STORE_URL, buildM3u, detectPlatform, externalPlayerLinks, isBlo
 // mpegts.js logs every segment at info/debug level by default; keep only warnings and errors.
 mpegts.LoggingControl.applyConfig({ enableDebug: false, enableVerbose: false, enableInfo: false });
 
-// Low-latency live MPEG-TS settings. Range loading keeps the mpegts.js defaults: the first request then carries
-// no Range or custom headers, so cross-origin requests to the proxy port need no CORS preflight.
-const MPEGTS_CONFIG = {
+// Buffered live MPEG-TS settings (see ADR-016). Latency chasing stays on because nothing else paces live
+// loading: with it off, a provider that bursts faster than realtime fills the SourceBuffer, mpegts.js suspends
+// the transmuxer and never resumes for live, freezing playback. But the library defaults chase 1.5 s with 0.5 s
+// remaining, which stalls constantly on IPTV streams (measured: 28 stalls in 45 s, vs 2 short ones with the
+// limits below). Range loading keeps the mpegts.js defaults: the first request then carries no Range or custom
+// headers, so cross-origin requests to the proxy port need no CORS preflight.
+export const MPEGTS_CONFIG = {
   enableWorker: true,
-  enableStashBuffer: false,
+  enableStashBuffer: true,
+  stashInitialSize: 1024 * 1024,
   lazyLoad: false,
   liveBufferLatencyChasing: true,
+  // Also while paused: mpegts.js keeps loading when paused but only trims behind the playhead, so without this
+  // the forward buffer grows until the SourceBuffer is full and live playback can never resume.
+  liveBufferLatencyChasingOnPaused: true,
+  liveBufferLatencyMaxLatency: 10,
+  liveBufferLatencyMinRemain: 4,
   autoCleanupSourceBuffer: true,
+  autoCleanupMaxBackwardDuration: 60,
+  autoCleanupMinBackwardDuration: 30,
 };
+
+// Exposed so an e2e test can assert these settings survive refactors (e2e blocks real streams, so playback
+// itself can't guard them).
+if (typeof window !== 'undefined') {
+  // A frozen copy: the object handed to mpegts.js must stay private so nothing can change playback behaviour.
+  window.__mpegtsConfig = Object.freeze({ ...MPEGTS_CONFIG });
+}
 
 // If nothing plays after this long (channel offline, provider connection limit, unsupported codec),
 // point the viewer to the external player options.
 const STALL_TIMEOUT_MS = 15000;
+
+// Notices for playback that never started (stalled) versus playback that stopped later (frozen).
+const NOTICE_TITLES = {
+  error: 'Playback failed',
+  stalled: 'The stream is taking too long to start',
+  frozen: 'Playback stopped',
+};
+const NOTICE_BODIES = {
+  stalled: 'The channel may be offline, busy or use a format this browser cannot play.',
+  frozen: 'The stream stopped sending data.',
+};
+
+// While playing, a picture that stops advancing for this long counts as frozen.
+const FREEZE_TIMEOUT_MS = 12000;
+const FREEZE_CHECK_INTERVAL_MS = 2000;
 
 function canPlayInBrowser(kind) {
   if (kind === 'mpegts') return mpegts.getFeatureList().mseLivePlayback;
@@ -97,7 +131,7 @@ function InBrowserPlayer({ url, kind, focusOnMount = false }) {
     if (focusOnMount) videoRef.current?.focus({ preventScroll: true });
   }, [focusOnMount]);
   const supported = useMemo(() => canPlayInBrowser(kind), [kind]);
-  const [status, setStatus] = useState('loading'); // loading | playing | paused | stalled | error
+  const [status, setStatus] = useState('loading'); // loading | playing | paused | stalled | frozen | error
   const [error, setError] = useState('');
   const [muted, setMuted] = useState(true);
   const [mediaInfo, setMediaInfo] = useState(null);
@@ -107,6 +141,42 @@ function InBrowserPlayer({ url, kind, focusOnMount = false }) {
     if (!supported || status !== 'loading') return undefined;
     const timer = setTimeout(() => setStatus((s) => (s === 'loading' ? 'stalled' : s)), STALL_TIMEOUT_MS);
     return () => clearTimeout(timer);
+  }, [status, supported]);
+
+  // A picture that freezes while "playing" (provider stopped sending, or mpegts.js suspended loading) raises no
+  // error and not always a 'waiting' event, so watch playback progress and offer the external players instead.
+  useEffect(() => {
+    if (!supported || status !== 'playing') return undefined;
+    const video = videoRef.current;
+    if (!video) return undefined;
+    let lastTime = video.currentTime;
+    let lastProgressAt = Date.now();
+    let missedTicks = 0;
+    // Background tabs suspend timers and the decoder, so start again from the moment the tab comes back.
+    const resetBaseline = () => {
+      lastTime = video.currentTime;
+      lastProgressAt = Date.now();
+      missedTicks = 0;
+    };
+    document.addEventListener('visibilitychange', resetBaseline);
+    const timer = setInterval(() => {
+      if (document.hidden || video.paused) {
+        resetBaseline();
+        return;
+      }
+      // Any movement counts, including a backward seek into the buffer, which is healthy playback.
+      if (Math.abs(video.currentTime - lastTime) > 0.05) {
+        resetBaseline();
+        return;
+      }
+      missedTicks += 1;
+      // Two consecutive silent ticks, so a single suspended interval can't raise a false alarm.
+      if (missedTicks >= 2 && Date.now() - lastProgressAt >= FREEZE_TIMEOUT_MS) setStatus('frozen');
+    }, FREEZE_CHECK_INTERVAL_MS);
+    return () => {
+      document.removeEventListener('visibilitychange', resetBaseline);
+      clearInterval(timer);
+    };
   }, [status, supported]);
 
   useEffect(() => {
@@ -238,7 +308,7 @@ function InBrowserPlayer({ url, kind, focusOnMount = false }) {
             </EuiButton>
           </div>
         )}
-        {muted && (status === 'loading' || status === 'playing' || status === 'stalled') && (
+        {muted && (status === 'loading' || status === 'playing' || status === 'stalled' || status === 'frozen') && (
           <EuiButton size="s" fill color="text" onClick={unmute} style={{ position: 'absolute', top: 8, left: 8 }} data-testid="player-unmute">
             Tap to unmute
           </EuiButton>
@@ -250,17 +320,17 @@ function InBrowserPlayer({ url, kind, focusOnMount = false }) {
           {mediaInfo?.width ? ` · ${mediaInfo.width}×${mediaInfo.height}` : ''}
         </EuiText>
       )}
-      {(status === 'error' || status === 'stalled') && (
+      {(status === 'error' || status === 'stalled' || status === 'frozen') && (
         <Fragment>
           <EuiSpacer size="s" />
           <EuiCallOut
             size="s"
             color={status === 'error' ? 'danger' : 'warning'}
             iconType="warning"
-            title={status === 'error' ? 'Playback failed' : 'The stream is taking too long to start'}
+            title={NOTICE_TITLES[status]}
             data-testid="player-error"
           >
-            <p>{status === 'error' ? error : 'The channel may be offline, busy or use a format this browser cannot play.'} Try &quot;Open in VLC&quot; or the .m3u download below.</p>
+            <p>{status === 'error' ? error : NOTICE_BODIES[status]} Try &quot;Open in VLC&quot; or the .m3u download below.</p>
           </EuiCallOut>
         </Fragment>
       )}
