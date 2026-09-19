@@ -67,6 +67,10 @@ const NOTICE_BODIES = {
   frozen: 'The stream stopped sending data.',
 };
 
+// After this much playback, a video with no decoded audio is treated as "silent": the audio codec (Dolby
+// E-AC-3, DTS) is one the browser can't decode, which is common in MKV films.
+const SILENT_CHECK_MS = 6000;
+
 // While playing, a picture that stops advancing for this long counts as frozen.
 const FREEZE_TIMEOUT_MS = 12000;
 const FREEZE_CHECK_INTERVAL_MS = 2000;
@@ -100,20 +104,27 @@ export function copyText(text) {
   const str = String(text);
   const fallback = () =>
     new Promise((resolve, reject) => {
+      // The textarea must live inside the open dialog: a focus trap pulls focus back from a body-level node,
+      // leaving an empty selection while execCommand still reports success (clipboard silently unchanged).
+      const host = document.querySelector('[role="dialog"]') || document.body;
       const ta = document.createElement('textarea');
       ta.value = str;
       ta.setAttribute('readonly', '');
       ta.style.position = 'absolute';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
+      ta.style.opacity = '0';
+      ta.style.pointerEvents = 'none';
+      host.appendChild(ta);
+      ta.focus({ preventScroll: true });
       ta.select();
+      ta.setSelectionRange(0, str.length);
       try {
-        if (document.execCommand('copy')) resolve();
+        const selected = String(window.getSelection() || '') === str || ta.selectionEnd - ta.selectionStart === str.length;
+        if (document.execCommand('copy') && selected) resolve();
         else reject(new Error('copy failed'));
       } catch (e) {
         reject(e);
       } finally {
-        document.body.removeChild(ta);
+        host.removeChild(ta);
       }
     });
   if (window.isSecureContext && navigator.clipboard?.writeText) {
@@ -135,11 +146,26 @@ function InBrowserPlayer({ url, kind, focusOnMount = false }) {
   const [error, setError] = useState('');
   const [muted, setMuted] = useState(true);
   const [mediaInfo, setMediaInfo] = useState(null);
+  const [silent, setSilent] = useState(false);
 
   // Any loading period (initial or after tapping Play) that doesn't start in time becomes a stall notice.
   useEffect(() => {
     if (!supported || status !== 'loading') return undefined;
     const timer = setTimeout(() => setStatus((s) => (s === 'loading' ? 'stalled' : s)), STALL_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [status, supported]);
+
+  // Video playing with no audio ever decoded: the file's audio codec isn't supported (Dolby/DTS in MKV is the
+  // usual case). Playback is fine, so just point at the external players for sound.
+  useEffect(() => {
+    if (!supported || status !== 'playing') return undefined;
+    const video = videoRef.current;
+    if (!video) return undefined;
+    const timer = setTimeout(() => {
+      const decoded = video.webkitAudioDecodedByteCount;
+      const hasAudioTrack = video.mozHasAudio ?? (video.audioTracks ? video.audioTracks.length > 0 : undefined);
+      if ((decoded === 0 && video.currentTime > 1) || hasAudioTrack === false) setSilent(true);
+    }, SILENT_CHECK_MS);
     return () => clearTimeout(timer);
   }, [status, supported]);
 
@@ -187,6 +213,7 @@ function InBrowserPlayer({ url, kind, focusOnMount = false }) {
     setStatus('loading');
     setError('');
     setMediaInfo(null);
+    setSilent(false);
 
     let player = null;
     let disposed = false;
@@ -319,6 +346,14 @@ function InBrowserPlayer({ url, kind, focusOnMount = false }) {
           {codecs}
           {mediaInfo?.width ? ` · ${mediaInfo.width}×${mediaInfo.height}` : ''}
         </EuiText>
+      )}
+      {silent && status === 'playing' && (
+        <Fragment>
+          <EuiSpacer size="s" />
+          <EuiCallOut size="s" color="primary" iconType="help" title="Playing without sound" data-testid="player-silent">
+            <p>This browser can&apos;t decode this file&apos;s audio (Dolby or DTS is common in MKV films). Use &quot;Open in VLC&quot; or the .m3u download below for sound.</p>
+          </EuiCallOut>
+        </Fragment>
       )}
       {(status === 'error' || status === 'stalled' || status === 'frozen') && (
         <Fragment>

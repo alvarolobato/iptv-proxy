@@ -119,10 +119,11 @@ test.describe('TV view', () => {
     await expect(playButton(page, 'A Series')).toBeVisible();
     await expect(playButton(page, 'A Movie')).toHaveCount(0);
 
-    // .mkv can't play in the browser: the sheet offers only external options.
+    // .mkv is handed to the browser (Chrome plays many of them); the sheet falls back to the external
+    // options only when playback actually fails, so a player must be attached here.
     const sheet = await openSheet(page, 'A Series');
-    await expect(sheet.getByTestId('player-unsupported')).toBeVisible();
-    await expect(sheet.getByTestId('player-video')).toHaveCount(0);
+    await expect(sheet.getByTestId('player-video')).toBeAttached();
+    await expect(sheet.getByTestId('player-unsupported')).toHaveCount(0);
   });
 
   test('explains missing stream URLs instead of blaming processing rules', async ({ page }) => {
@@ -220,9 +221,22 @@ test.describe('TV view', () => {
     await page.goto('/tv');
     const sheet = await openSheet(page, playable.name);
     await expect(sheet.getByTestId('player-video')).toBeAttached();
+    // The copy must actually take: with the textarea appended to document.body, the dialog's focus trap left an
+    // empty selection while execCommand still reported success, so the label said "Copied" and nothing was copied.
+    await page.evaluate(() => {
+      window.__copied = null;
+      const orig = document.execCommand.bind(document);
+      document.execCommand = (cmd, ...rest) => {
+        if (cmd === 'copy') window.__copied = String(window.getSelection() || '');
+        return orig(cmd, ...rest);
+      };
+    });
     await sheet.getByTestId('player-copy-url').click();
     await expect(sheet.getByTestId('player-stopped')).toBeVisible();
     await expect(sheet.getByTestId('player-video')).toHaveCount(0);
+    await expect(sheet.getByTestId('player-copy-url')).toHaveText(/Copied/);
+    const copied = await page.evaluate(() => window.__copied);
+    expect(copied, 'the selection handed to the clipboard must be the stream URL').toContain(playable.stream_url);
   });
 
   // The buffered player settings are the fix for constant rebuffering (ADR-016). E2E blocks real streams, so
