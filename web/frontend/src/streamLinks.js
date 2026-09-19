@@ -9,7 +9,8 @@ const VLC_ANDROID_PACKAGE = 'org.videolan.vlc';
 //   'mpegts'      live MPEG-TS (.ts or no extension, e.g. Xtream /user/pass/id) -> mpegts.js
 //   'hls'         .m3u8 -> native HLS only (Safari)
 //   'progressive' .mp4/.m4v/.webm -> native <video src>
-//   'external'    anything else (e.g. .mkv, .avi) -> external player only
+//   'progressive' anything else (.mp4, .mkv, ...) -> native <video>; the browser decides what it can decode
+//   'external'    only when the URL can't be parsed
 export function streamKind(url) {
   let pathname;
   try {
@@ -22,8 +23,9 @@ export function streamKind(url) {
   const ext = dot > 0 ? last.slice(dot + 1) : '';
   if (ext === '' || ext === 'ts') return 'mpegts';
   if (ext === 'm3u8') return 'hls';
-  if (['mp4', 'm4v', 'webm'].includes(ext)) return 'progressive';
-  return 'external';
+  // Everything else (.mkv, .avi, ...) is handed to the browser: Chrome plays plenty of MKVs, and when it
+  // can't, the player sheet falls back to the external options.
+  return 'progressive';
 }
 
 // channelCategory maps the API channel type (first URL path segment, e.g. play/live/movie/series)
